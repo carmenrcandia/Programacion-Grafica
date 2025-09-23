@@ -1,0 +1,3600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Odontograma Interactivo</title>
+<style>
+    
+    #container {
+      position: relative;
+      width: 500px;
+      height: 500px;
+      margin: auto;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #textCanvas {
+      pointer-events: none; /* deja pasar los clics al canvas WebGL */
+    }
+  </style>
+</head>
+<body>
+ 
+  
+<h2>Odontograma</h2> 
+<canvas id="webglcanvas" style="border: none;" width="800" height="650"></canvas>
+<canvas id="textCanvas" width="800" height="650"></canvas>
+
+  <script id="vs" type="vertex">
+    #version 300 es
+    uniform mat4 uMatrizProyeccion;
+    layout(location = 0) in vec2 aVertices;
+    void main() {
+        gl_Position = uMatrizProyeccion * vec4(aVertices, 0.0, 1.0);
+    }
+  </script>
+
+  <script id="fs" type="fragment">
+    #version 300 es
+    precision mediump float;
+    uniform vec4 uColor;
+    out vec4 color;
+    void main() {
+        color = uColor;
+    }
+  </script>
+
+  <script>
+    /* Matriz Identidad */
+    function identidad(r) {
+        r[0]=1; r[4]=0; r[8]=0; r[12]=0;
+        r[1]=0; r[5]=1; r[9]=0; r[13]=0;
+        r[2]=0; r[6]=0; r[10]=1; r[14]=0;
+        r[3]=0; r[7]=0; r[11]=0; r[15]=1;
+    }
+
+    /* Proyección Paralela */
+    function ortho(r, izq, der, abj, arr, cerca, lejos) {
+        r[0]=2/(der-izq); r[4]=0; r[8]=0; r[12]=-(der+izq)/(der-izq);
+        r[1]=0; r[5]=2/(arr-abj); r[9]=0; r[13]=-(arr+abj)/(arr-abj);
+        r[2]=0; r[6]=0; r[10]=-2/(lejos-cerca); r[14]=-(lejos+cerca)/(lejos-cerca);
+        r[3]=0; r[7]=0; r[11]=0; r[15]=1;
+    }
+
+       var MatrizProyeccion = new Array(16);
+        var MatrizModelo = new Array(16);
+        var uMatrizProyeccion;
+        var uMatrizModelo;
+        var uColor, gl, canvas, rectanguloVAO,ctxText,ctxText2;
+        let estadoP11=0;
+        let estadoP12=0;
+        let estadoP13=0;
+        let estadoP14=0;
+        let estadoP15=0;
+        let estadoP21=0;
+        let estadoP22=0;
+        let estadoP23=0;
+        let estadoP24=0;
+        let estadoP25=0;
+        let estadoP31=0;
+        let estadoP32=0;
+        let estadoP33=0;
+        let estadoP34=0;
+        let estadoP35=0;
+         let estadoP41=0;
+         let estadoP42=0;
+         let estadoP43=0;
+         let estadoP44=0;
+         let estadoP45=0;
+        let modoPiezaSana = false;
+        let modoPiezaExtraida = false;
+        let modoPiezaCaries=false;
+        let modoPiezaSellante=false;
+        let modoPiezaFracturado=false;
+        let modoPiezaRestauracion=false;
+        let modoPiezaExodoncia=false;
+        let modoSeleccionado = 0;
+        let pieza11seccion=0;
+        let pieza11seccionesSeleccionadas = []; 
+        let pieza21seccionesSeleccionadas = [];
+        let pieza12seccionesSeleccionadas = [];
+        let pieza13seccionesSeleccionadas = [];
+        let pieza14seccionesSeleccionadas = [];
+        let pieza15seccionesSeleccionadas = [];
+        let pieza22seccionesSeleccionadas = [];
+        let pieza23seccionesSeleccionadas = [];
+        let pieza24seccionesSeleccionadas = [];
+        let pieza25seccionesSeleccionadas = [];
+        let pieza31seccionesSeleccionadas = []; 
+        let pieza32seccionesSeleccionadas = [];
+        let pieza33seccionesSeleccionadas = [];
+        let pieza34seccionesSeleccionadas = [];
+        let pieza35seccionesSeleccionadas = [];
+        let pieza41seccionesSeleccionadas = []; 
+        let pieza42seccionesSeleccionadas = [];
+        let pieza43seccionesSeleccionadas = [];
+        let pieza44seccionesSeleccionadas = [];
+        let pieza45seccionesSeleccionadas = [];
+        
+
+    // Función para detectar clic dentro de un cuadrado
+    function puntoEstaDentroDelCuadrado(x,y, x1,y1, ancho, alto){
+        var x2 = x1 + ancho;
+        var y2 = y1 + alto;
+        return (x1 < x && x < x2 && y1 < y && y < y2);
+    }
+
+    const poligonos = [
+   
+    //pieza11 
+    [ [-2,2],[-1.2,2], [-0.6,2.6], [-2.6,2.6]],
+    [ [-2.6,0.6], [-2,1.2], [-2,2], [-2.6,2.6] ], 
+    [ [-2.6,0.6], [-0.6,0.6], [-1.2,1.2], [-2,1.2] ], 
+    [ [-1.2,1.2], [-0.6,0.6], [-0.6,2.6], [-1.2,2]], 
+    // pieza21 
+    [ [2,2],[1.2,2], [0.6,2.6], [2.6,2.6]],
+    [ [2.6,0.6], [2,1.2], [2,2], [2.6,2.6]], 
+    [ [2.6,0.6], [0.6,0.6], [1.2,1.2], [2,1.2]], 
+    [ [1.2,1.2], [0.6,0.6], [0.6,2.6], [1.2,2]],
+    
+    //pieza12
+    [[-4.5,2], [-3.7,2], [-3.1,2.6], [-5.1,2.6]],
+    [[-5.1,0.6], [-4.5,1.2], [-4.5,2], [-5.1,2.6]],
+    [[-5.1,0.6], [-3.1,0.6], [-3.7,1.2], [-4.5,1.2]],
+    [[-3.7,1.2], [-3.1,0.6], [-3.1,2.6], [-3.7,2]],
+//pieza13
+    [[-7,2], [-6.2,2], [-5.6,2.6], [-7.6,2.6]], 
+    [[-7.6,0.6], [-7,1.2], [-7,2], [-7.6,2.6]], 
+    [[-7.6,0.6], [-5.6,0.6], [-6.2,1.2], [-7,1.2]],
+    [[-6.2,1.2], [-5.6,0.6], [-5.6,2.6], [-6.2,2]],
+    //pieza14
+    [[-9.5,2], [-8.7,2], [-8.1,2.6], [-10.1,2.6]], 
+    [[-10.1,0.6], [-9.5,1.2], [-9.5,2], [-10.1,2.6]], 
+    [[-10.1,0.6], [-8.1,0.6], [-8.7,1.2], [-9.5,1.2]], 
+    [[-8.7,1.2], [-8.1,0.6], [-8.1,2.6], [-8.7,2]] ,
+    //pieza15
+    [[-12,2], [-11.2,2], [-10.6,2.6], [-12.6,2.6]],  
+    [[-12.6,0.6], [-12,1.2], [-12,2], [-12.6,2.6]],   
+    [[-12.6,0.6], [-10.6,0.6], [-11.2,1.2], [-12,1.2]], 
+    [[-11.2,1.2], [-10.6,0.6], [-10.6,2.6], [-11.2,2]] ,
+    //pieza41
+ 
+    [[-2,-2], [-1.2,-2], [-0.6,-2.6], [-2.6,-2.6]],   
+    [[-2.6,-0.6], [-2,-1.2], [-2,-2], [-2.6,-2.6]],    
+    [[-2.6,-0.6], [-0.6,-0.6], [-1.2,-1.2], [-2,-1.2]],  
+    [[-1.2,-1.2], [-0.6,-0.6], [-0.6,-2.6], [-1.2,-2]] ,
+    
+    //pieza42
+    [[-4.5,-2], [-3.7,-2], [-3.1,-2.6], [-5.1,-2.6]], 
+    [[-5.1,-0.6], [-4.5,-1.2], [-4.5,-2], [-5.1,-2.6]], 
+    [[-5.1,-0.6], [-3.1,-0.6], [-3.7,-1.2], [-4.5,-1.2]],
+    [[-3.7,-1.2], [-3.1,-0.6], [-3.1,-2.6], [-3.7,-2]] ,
+    
+    //pieza43
+    [[-7,-2], [-6.2,-2], [-5.6,-2.6], [-7.6,-2.6]],    
+    [[-7.6,-0.6], [-7,-1.2], [-7,-2], [-7.6,-2.6]],      
+    [[-7.6,-0.6], [-5.6,-0.6], [-6.2,-1.2], [-7,-1.2]],  
+    [[-6.2,-1.2], [-5.6,-0.6], [-5.6,-2.6], [-6.2,-2]] ,
+
+    //pieza44
+    [[-9.5,-2], [-8.7,-2], [-8.1,-2.6], [-10.1,-2.6]],  
+    [[-10.1,-0.6], [-9.5,-1.2], [-9.5,-2], [-10.1,-2.6]], 
+    [[-10.1,-0.6], [-8.1,-0.6], [-8.7,-1.2], [-9.5,-1.2]],  
+    [[-8.7,-1.2], [-8.1,-0.6], [-8.1,-2.6], [-8.7,-2]],
+
+    //pieza45
+    [[-12,-2], [-11.2,-2], [-10.6,-2.6], [-12.6,-2.6]],   
+    [[-12.6,-0.6], [-12,-1.2], [-12,-2], [-12.6,-2.6]],     
+    [[-12.6,-0.6], [-10.6,-0.6], [-11.2,-1.2], [-12,-1.2]],  
+    [[-11.2,-1.2], [-10.6,-0.6], [-10.6,-2.6], [-11.2,-2]] ,
+
+    //pieza22
+    [[4.5,2], [3.7,2], [3.1,2.6], [5.1,2.6]],      
+    [[5.1,0.6], [4.5,1.2], [4.5,2], [5.1,2.6]],     
+    [[5.1,0.6], [3.1,0.6], [3.7,1.2], [4.5,1.2]],   
+    [[3.7,1.2], [3.1,0.6], [3.1,2.6], [3.7,2]],
+
+    //pieza23
+    [[7,2], [6.2,2], [5.6,2.6], [7.6,2.6]],   
+    [[7.6,0.6], [7,1.2], [7,2], [7.6,2.6]],    
+    [[7.6,0.6], [5.6,0.6], [6.2,1.2], [7,1.2]],  
+    [[6.2,1.2], [5.6,0.6], [5.6,2.6], [6.2,2]],
+    //pieza24
+ 
+    [[9.5,2], [8.7,2], [8.1,2.6], [10.1,2.6]],  
+    [[10.1,0.6], [9.5,1.2], [9.5,2], [10.1,2.6]],  
+    [[10.1,0.6], [8.1,0.6], [8.7,1.2], [9.5,1.2]],
+    [[8.7,1.2], [8.1,0.6], [8.1,2.6], [8.7,2]] ,
+
+    //pieza25
+    [[12,2], [11.2,2], [10.6,2.6], [12.6,2.6]],    
+    [[12.6,0.6], [12,1.2], [12,2], [12.6,2.6]],    
+    [[12.6,0.6], [10.6,0.6], [11.2,1.2], [12,1.2]],  
+    [[11.2,1.2], [10.6,0.6], [10.6,2.6], [11.2,2]],
+    //pieza31
+    [[2,-2], [1.2,-2], [0.6,-2.6], [2.6,-2.6]],         // lateral superior
+    [[2.6,-0.6], [2,-1.2], [2,-2], [2.6,-2.6]],         // lateral izquierdo
+    [[2.6,-0.6], [0.6,-0.6], [1.2,-1.2], [2,-1.2]],     // lateral inferior
+    [[1.2,-1.2], [0.6,-0.6], [0.6,-2.6], [1.2,-2]],    
+
+    //pieza32
+    [[4.5,-2], [3.7,-2], [3.1,-2.6], [5.1,-2.6]],       // lateral superior
+    [[5.1,-0.6], [4.5,-1.2], [4.5,-2], [5.1,-2.6]],     // lateral izquierdo
+    [[5.1,-0.6], [3.1,-0.6], [3.7,-1.2], [4.5,-1.2]],   // lateral inferior
+    [[3.7,-1.2], [3.1,-0.6], [3.1,-2.6], [3.7,-2]] ,     // lateral derecho
+
+    //pieza33
+    [[7,-2], [6.2,-2], [5.6,-2.6], [7.6,-2.6]],         // lateral superior
+    [[7.6,-0.6], [7,-1.2], [7,-2], [7.6,-2.6]],         // lateral izquierdo
+    [[7.6,-0.6], [5.6,-0.6], [6.2,-1.2], [7,-1.2]],     // lateral inferior
+    [[6.2,-1.2], [5.6,-0.6], [5.6,-2.6], [6.2,-2]] ,
+    //pieza34 
+    [[9.5,-2], [8.7,-2], [8.1,-2.6], [10.1,-2.6]],      // lateral superior
+    [[10.1,-0.6], [9.5,-1.2], [9.5,-2], [10.1,-2.6]],   // lateral izquierdo
+    [[10.1,-0.6], [8.1,-0.6], [8.7,-1.2], [9.5,-1.2]],  // lateral inferior
+    [[8.7,-1.2], [8.1,-0.6], [8.1,-2.6], [8.7,-2]]  ,    // lateral derecho
+    //pieza35 
+    [[11.2,-1.2], [12,-1.2], [12,-2], [11.2,-2]],       // centro
+    [[12,-2], [11.2,-2], [10.6,-2.6], [12.6,-2.6]],     // lateral superior
+    [[12.6,-0.6], [12,-1.2], [12,-2], [12.6,-2.6]],     // lateral izquierdo
+    [[12.6,-0.6], [10.6,-0.6], [11.2,-1.2], [12,-1.2]], // lateral inferior
+    [[11.2,-1.2], [10.6,-0.6], [10.6,-2.6], [11.2,-2]]  // lateral derecho
+
+
+
+];
+
+
+
+    // Función única para detectar clic en cualquier polígono
+    function estaDentroPoligono(x, y, indice) {
+        let pieza11 = poligonos[indice];
+        let dentro = false;
+        for (let i=0, j=pieza11.length-1; i<pieza11.length; j=i++) {
+            let xi=pieza11[i][0], yi=pieza11[i][1];
+            let xj=pieza11[j][0], yj=pieza11[j][1];
+            if (((yi>y)!=(yj>y)) &&
+                (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) {
+                dentro = !dentro;
+            }
+        }
+        return dentro;
+    }
+        // Detectar clic en sección sana
+        function estaDentroPiezaSana(x, y) {
+        // Ajusta según tus vértices de piezasana
+        return puntoEstaDentroDelCuadrado(x, y, -2,9.2, 1, 1);
+        }
+        function estaDentroPiezaExtraida(x, y) {
+        return puntoEstaDentroDelCuadrado(x, y,  1.2,9.2, 1, 1);
+        }
+        function estaDentroPiezaCaries(x, y) {
+        return puntoEstaDentroDelCuadrado(x, y, 4.2,9.2, 1, 1);
+        }
+        function estaDentroPiezaSellante(x, y) {
+        return puntoEstaDentroDelCuadrado(x, y,  -5,9.2, 1, 1);
+        }
+        function estaDentroPiezaRestauracion(x, y) {
+        return puntoEstaDentroDelCuadrado(x, y,7.2,9.2, 1, 1);
+        }
+        function estaDentroPiezaFracturado(x, y) {
+        return puntoEstaDentroDelCuadrado(x, y, -8,9.2, 1, 1);
+        }
+         function estaDentroPiezaExodoncia(x, y) {
+        return puntoEstaDentroDelCuadrado(x, y,  -11,9.2, 1, 1);
+        }
+
+
+   function mouseDown(e){
+    let posx = e.x - canvas.offsetLeft;
+    let posy = e.y - canvas.offsetTop;
+
+    let x = (posx / canvas.width) * 40 - 20; 
+    let y = 20 - (posy / canvas.height) * 40;
+
+    console.log('x = ', x, ' y = ', y);
+
+    // Activar modos al clicar botones / áreas específicas
+    if (estaDentroPiezaExtraida(x,y)) {
+        modoPiezaExtraida = true;
+        modoPiezaSana = false;
+        modoPiezaCaries = false;
+        modoPiezaFracturado=false;
+        modoPiezaRestauracion = false;
+        modoPiezaSellante = false;
+        modoPiezaExodoncia=false;
+        alert("Modo pieza extraida");
+        return;
+    }
+
+    if (estaDentroPiezaSana(x,y)) {
+        modoPiezaSana = true;
+        modoPiezaExtraida = false;
+        modoPiezaCaries = false;
+        modoPiezaFracturado=false;
+        modoPiezaRestauracion = false;
+        modoPiezaSellante = false;
+        modoPiezaExodoncia=false;
+        alert("Modo pieza sana activado");
+        return;
+    }
+    if (estaDentroPiezaCaries(x,y)) {
+        modoPiezaSana = false;
+        modoPiezaExtraida = false;
+        modoPiezaCaries = true;
+        modoPiezaFracturado=false;
+        modoPiezaRestauracion = false;
+        modoPiezaSellante = false;
+        modoPiezaExodoncia=false;
+        alert("Modo pieza caries activado");
+        return;
+    }
+
+     if (estaDentroPiezaSellante(x,y)) {
+        modoPiezaSana = false;
+        modoPiezaExtraida = false;
+        modoPiezaCaries = false;
+        modoPiezaFracturado=false;
+        modoPiezaRestauracion = false;
+        modoPiezaSellante = true;
+        modoPiezaExodoncia=false;
+        alert("Modo pieza sellante activado");
+        return;
+    }
+
+    
+     if (estaDentroPiezaRestauracion(x,y)) {
+        modoPiezaSana = false;
+        modoPiezaExtraida = false;
+        modoPiezaCaries = false;
+        modoPiezaFracturado=false;
+        modoPiezaRestauracion = true;
+        modoPiezaSellante = false;
+        modoPiezaExodoncia=false;
+        alert("Modo pieza restauracion activado");
+        return;
+    }
+    if (estaDentroPiezaFracturado(x,y)) {
+        modoPiezaSana = false;
+        modoPiezaExtraida = false;
+        modoPiezaCaries = false;
+        modoPiezaFracturado=true;
+        modoPiezaRestauracion = false;
+        modoPiezaSellante = false;
+        modoPiezaExodoncia=false;
+        alert("Modo pieza fracturado activado");
+        return;
+    }
+
+     if (estaDentroPiezaExodoncia(x,y)) {
+        modoPiezaExodoncia=true;
+        modoPiezaFracturado=false;
+        modoPiezaRestauracion = false;
+        modoPiezaSellante = false;
+        modoPiezaCaries = false;
+        modoPiezaExtraida = false;
+        modoPiezaSana = false;
+        alert("Modo pieza exodoncia activado");
+        return;
+    }
+
+    // Aplicar cambios solo a la pieza en la que se hace clic
+    if (modoPiezaSana) {
+        if (puntoEstaDentroDelCuadrado(x,y,-2,1.2,1,1)) estadoP11 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,1.2,1,1)) estadoP12 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,-7,1.2,1,1)) estadoP13 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,-9.5,1.2,1,1)) estadoP14 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,-12,1.2,1,1)) estadoP15 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,1.2,1,1)) estadoP21 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1)) estadoP22 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1)) estadoP23 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1)) estadoP24 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1)) estadoP25 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1)) estadoP31 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1)) estadoP32 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,-2,1,1)) estadoP33 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,-2,1,1)) estadoP34 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,-2,1,1)) estadoP35 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,-2,-2,1,1)) estadoP41 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,-2,1,1)) estadoP42 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y, -7,-2,1,1)) estadoP43 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y, -9.5,-2,1,1)) estadoP44 = 1;
+        if (puntoEstaDentroDelCuadrado(x,y, -12,-2,1,1)) estadoP45 = 1;
+       
+
+        dibuja();
+        return;
+    }
+
+    if (modoPiezaExtraida) {
+        if (puntoEstaDentroDelCuadrado(x,y,-2,1.2,1,1)) estadoP11 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,1.2,1,1)) estadoP12 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y, -7,1.2,1,1)) estadoP13 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,-9.5,1.2,1,1)) estadoP14 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,-12,1.2,1,1)) estadoP15 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,1.2,1,1)) estadoP21 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1)) estadoP22 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1)) estadoP23 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1)) estadoP24 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1)) estadoP25 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1)) estadoP31 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1)) estadoP32 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,-2,1,1)) estadoP33 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,-2,1,1)) estadoP34 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,-2,1,1)) estadoP35 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,-2,-2,1,1)) estadoP41 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,-2,1,1)) estadoP42 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y, -7,-2,1,1)) estadoP43 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y, -9.5,-2,1,1)) estadoP44 = 2;
+        if (puntoEstaDentroDelCuadrado(x,y, -12,-2,1,1)) estadoP45 = 2;
+        dibuja();
+        return;
+    }
+
+     if (modoPiezaCaries) {
+        estadoP11=3;
+        estadoP12=3;
+        estadoP13=3;
+        estadoP14=3;
+        estadoP15=3;
+        estadoP21=3;
+        estadoP22=3;
+        estadoP23=3;
+        estadoP24=3;
+        estadoP25=3;
+        estadoP31=3;
+        estadoP32=3;
+        estadoP33=3;
+        estadoP34=3;
+        estadoP35=3;
+        estadoP41=3;
+        estadoP42=3;
+        estadoP43=3;
+        estadoP44=3;
+        estadoP45=3;
+        
+    if (estaDentroPoligono(x, y, 0) && !pieza11seccionesSeleccionadas.includes(1)) pieza11seccionesSeleccionadas.push(1);
+    if (estaDentroPoligono(x, y, 1) && !pieza11seccionesSeleccionadas.includes(2)) pieza11seccionesSeleccionadas.push(2);
+    if (estaDentroPoligono(x, y, 2) && !pieza11seccionesSeleccionadas.includes(3)) pieza11seccionesSeleccionadas.push(3);
+    if (estaDentroPoligono(x, y, 3) && !pieza11seccionesSeleccionadas.includes(4)) pieza11seccionesSeleccionadas.push(4);
+    if (puntoEstaDentroDelCuadrado(x, y, -2,1.2,1,1) && !pieza11seccionesSeleccionadas.includes(5)) pieza11seccionesSeleccionadas.push(5);
+    dibuja(); 
+    if (estaDentroPoligono(x, y, 4) && !pieza21seccionesSeleccionadas.includes(6)) pieza21seccionesSeleccionadas.push(6);
+    if (estaDentroPoligono(x, y, 5) && !pieza21seccionesSeleccionadas.includes(7)) pieza21seccionesSeleccionadas.push(7);
+    if (estaDentroPoligono(x, y, 6) && !pieza21seccionesSeleccionadas.includes(8)) pieza21seccionesSeleccionadas.push(8);
+    if (estaDentroPoligono(x, y, 7) && !pieza21seccionesSeleccionadas.includes(9)) pieza21seccionesSeleccionadas.push(9);
+
+    if (puntoEstaDentroDelCuadrado(x, y, 1.2,1.2,1,1) && !pieza21seccionesSeleccionadas.includes(10)) pieza21seccionesSeleccionadas.push(10);
+    if (estaDentroPoligono(x, y, 8) && !pieza12seccionesSeleccionadas.includes(11)) pieza12seccionesSeleccionadas.push(11);
+    if (estaDentroPoligono(x, y, 9) && !pieza12seccionesSeleccionadas.includes(12)) pieza12seccionesSeleccionadas.push(12);
+    if (estaDentroPoligono(x, y, 10) && !pieza12seccionesSeleccionadas.includes(13)) pieza12seccionesSeleccionadas.push(13);
+    if (estaDentroPoligono(x, y, 11) && !pieza12seccionesSeleccionadas.includes(14)) pieza12seccionesSeleccionadas.push(14);
+    if (puntoEstaDentroDelCuadrado(x, y, -4.5,1.2,1,1) && !pieza12seccionesSeleccionadas.includes(15)) pieza12seccionesSeleccionadas.push(15);
+
+    if (estaDentroPoligono(x, y, 12) && !pieza13seccionesSeleccionadas.includes(16)) pieza13seccionesSeleccionadas.push(16);
+    if (estaDentroPoligono(x, y, 13) && !pieza13seccionesSeleccionadas.includes(17)) pieza13seccionesSeleccionadas.push(17);
+    if (estaDentroPoligono(x, y, 14) && !pieza13seccionesSeleccionadas.includes(18)) pieza13seccionesSeleccionadas.push(18);
+    if (estaDentroPoligono(x, y, 15) && !pieza13seccionesSeleccionadas.includes(19)) pieza13seccionesSeleccionadas.push(19);
+    if (puntoEstaDentroDelCuadrado(x, y, -7,1.2,1,1) && !pieza13seccionesSeleccionadas.includes(20)) pieza13seccionesSeleccionadas.push(20);
+
+    if (estaDentroPoligono(x, y, 16) && !pieza14seccionesSeleccionadas.includes(21)) pieza14seccionesSeleccionadas.push(21);
+    if (estaDentroPoligono(x, y, 17) && !pieza14seccionesSeleccionadas.includes(22)) pieza14seccionesSeleccionadas.push(22);
+    if (estaDentroPoligono(x, y, 18) && !pieza14seccionesSeleccionadas.includes(23)) pieza14seccionesSeleccionadas.push(23);
+    if (estaDentroPoligono(x, y, 19) && !pieza14seccionesSeleccionadas.includes(24)) pieza14seccionesSeleccionadas.push(24);
+    if (puntoEstaDentroDelCuadrado(x, y, -9.5,1.2,1,1) && !pieza14seccionesSeleccionadas.includes(25)) pieza14seccionesSeleccionadas.push(25);
+
+    if (estaDentroPoligono(x, y, 20) && !pieza15seccionesSeleccionadas.includes(26)) pieza15seccionesSeleccionadas.push(26);
+    if (estaDentroPoligono(x, y, 21) && !pieza15seccionesSeleccionadas.includes(27)) pieza15seccionesSeleccionadas.push(27);
+    if (estaDentroPoligono(x, y, 22) && !pieza15seccionesSeleccionadas.includes(28)) pieza15seccionesSeleccionadas.push(28);
+    if (estaDentroPoligono(x, y, 23) && !pieza15seccionesSeleccionadas.includes(29)) pieza15seccionesSeleccionadas.push(29);
+    if (puntoEstaDentroDelCuadrado(x, y, -12,1.2,1,1) && !pieza15seccionesSeleccionadas.includes(30)) pieza15seccionesSeleccionadas.push(30);
+
+     if (estaDentroPoligono(x, y, 24) && !pieza41seccionesSeleccionadas.includes(31)) pieza41seccionesSeleccionadas.push(31);
+    if (estaDentroPoligono(x, y, 25) && !pieza41seccionesSeleccionadas.includes(32)) pieza41seccionesSeleccionadas.push(32);
+    if (estaDentroPoligono(x, y, 26) && !pieza41seccionesSeleccionadas.includes(33)) pieza41seccionesSeleccionadas.push(33);
+    if (estaDentroPoligono(x, y, 27) && !pieza41seccionesSeleccionadas.includes(34)) pieza41seccionesSeleccionadas.push(34);
+    if (puntoEstaDentroDelCuadrado(x, y, -2,-2,1,1) && !pieza41seccionesSeleccionadas.includes(35)) pieza41seccionesSeleccionadas.push(35);
+
+    if (estaDentroPoligono(x, y, 28) && !pieza42seccionesSeleccionadas.includes(36)) pieza42seccionesSeleccionadas.push(36);
+    if (estaDentroPoligono(x, y, 29) && !pieza42seccionesSeleccionadas.includes(37)) pieza42seccionesSeleccionadas.push(37);
+    if (estaDentroPoligono(x, y, 30) && !pieza42seccionesSeleccionadas.includes(38)) pieza42seccionesSeleccionadas.push(38);
+    if (estaDentroPoligono(x, y, 31) && !pieza42seccionesSeleccionadas.includes(39)) pieza42seccionesSeleccionadas.push(39);
+    if (puntoEstaDentroDelCuadrado(x, y, -4.5,-2,1,1) && !pieza42seccionesSeleccionadas.includes(40)) pieza42seccionesSeleccionadas.push(40);
+
+     if (estaDentroPoligono(x, y, 32) && !pieza43seccionesSeleccionadas.includes(41)) pieza43seccionesSeleccionadas.push(41);
+    if (estaDentroPoligono(x, y, 33) && !pieza43seccionesSeleccionadas.includes(42)) pieza43seccionesSeleccionadas.push(42);
+    if (estaDentroPoligono(x, y, 34) && !pieza43seccionesSeleccionadas.includes(43)) pieza43seccionesSeleccionadas.push(43);
+    if (estaDentroPoligono(x, y, 35) && !pieza43seccionesSeleccionadas.includes(44)) pieza43seccionesSeleccionadas.push(44);
+    if (puntoEstaDentroDelCuadrado(x, y, -7,-2,1,1) && !pieza43seccionesSeleccionadas.includes(45)) pieza43seccionesSeleccionadas.push(45);
+
+    if (estaDentroPoligono(x, y, 36) && !pieza44seccionesSeleccionadas.includes(46)) pieza44seccionesSeleccionadas.push(46);
+    if (estaDentroPoligono(x, y, 37) && !pieza44seccionesSeleccionadas.includes(47)) pieza44seccionesSeleccionadas.push(47);
+    if (estaDentroPoligono(x, y, 38) && !pieza44seccionesSeleccionadas.includes(48)) pieza44seccionesSeleccionadas.push(48);
+    if (estaDentroPoligono(x, y, 39) && !pieza44seccionesSeleccionadas.includes(49)) pieza44seccionesSeleccionadas.push(49);
+    if (puntoEstaDentroDelCuadrado(x, y,-9.5,-2,1,1) && !pieza44seccionesSeleccionadas.includes(50)) pieza44seccionesSeleccionadas.push(50);
+
+    if (estaDentroPoligono(x, y, 40) && !pieza45seccionesSeleccionadas.includes(51)) pieza45seccionesSeleccionadas.push(51);
+    if (estaDentroPoligono(x, y, 41) && !pieza45seccionesSeleccionadas.includes(52)) pieza45seccionesSeleccionadas.push(52);
+    if (estaDentroPoligono(x, y, 42) && !pieza45seccionesSeleccionadas.includes(53)) pieza45seccionesSeleccionadas.push(53);
+    if (estaDentroPoligono(x, y, 43) && !pieza45seccionesSeleccionadas.includes(54)) pieza45seccionesSeleccionadas.push(54);
+    if (puntoEstaDentroDelCuadrado(x, y,-12,-2,1,1) && !pieza45seccionesSeleccionadas.includes(55)) pieza45seccionesSeleccionadas.push(55);
+
+    if (estaDentroPoligono(x, y, 44) && !pieza22seccionesSeleccionadas.includes(56)) pieza22seccionesSeleccionadas.push(56);
+    if (estaDentroPoligono(x, y, 45) && !pieza22seccionesSeleccionadas.includes(57)) pieza22seccionesSeleccionadas.push(57);
+    if (estaDentroPoligono(x, y, 46) && !pieza22seccionesSeleccionadas.includes(58)) pieza22seccionesSeleccionadas.push(58);
+    if (estaDentroPoligono(x, y, 47) && !pieza22seccionesSeleccionadas.includes(59)) pieza22seccionesSeleccionadas.push(59);
+    if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1) && !pieza22seccionesSeleccionadas.includes(60)) pieza22seccionesSeleccionadas.push(60);
+
+    if (estaDentroPoligono(x, y, 48) && !pieza23seccionesSeleccionadas.includes(61)) pieza23seccionesSeleccionadas.push(61);
+    if (estaDentroPoligono(x, y, 49) && !pieza23seccionesSeleccionadas.includes(62)) pieza23seccionesSeleccionadas.push(62);
+    if (estaDentroPoligono(x, y, 50) && !pieza23seccionesSeleccionadas.includes(63)) pieza23seccionesSeleccionadas.push(63);
+    if (estaDentroPoligono(x, y, 51) && !pieza23seccionesSeleccionadas.includes(64)) pieza23seccionesSeleccionadas.push(64);
+    if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1) && !pieza23seccionesSeleccionadas.includes(65)) pieza23seccionesSeleccionadas.push(65);
+
+    if (estaDentroPoligono(x, y, 52) && !pieza24seccionesSeleccionadas.includes(66)) pieza24seccionesSeleccionadas.push(66);
+    if (estaDentroPoligono(x, y, 53) && !pieza24seccionesSeleccionadas.includes(67)) pieza24seccionesSeleccionadas.push(67);
+    if (estaDentroPoligono(x, y, 54) && !pieza24seccionesSeleccionadas.includes(68)) pieza24seccionesSeleccionadas.push(68);
+    if (estaDentroPoligono(x, y, 55) && !pieza24seccionesSeleccionadas.includes(69)) pieza24seccionesSeleccionadas.push(69);
+    if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1) && !pieza24seccionesSeleccionadas.includes(70)) pieza24seccionesSeleccionadas.push(70);
+
+    if (estaDentroPoligono(x, y, 56) && !pieza25seccionesSeleccionadas.includes(71)) pieza25seccionesSeleccionadas.push(71);
+    if (estaDentroPoligono(x, y, 57) && !pieza25seccionesSeleccionadas.includes(72)) pieza25seccionesSeleccionadas.push(72);
+    if (estaDentroPoligono(x, y, 58) && !pieza25seccionesSeleccionadas.includes(73)) pieza25seccionesSeleccionadas.push(73);
+    if (estaDentroPoligono(x, y, 59) && !pieza25seccionesSeleccionadas.includes(74)) pieza25seccionesSeleccionadas.push(74);
+    if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1) && !pieza25seccionesSeleccionadas.includes(75)) pieza25seccionesSeleccionadas.push(75);
+
+    if (estaDentroPoligono(x, y, 60) && !pieza31seccionesSeleccionadas.includes(76)) pieza31seccionesSeleccionadas.push(76);
+    if (estaDentroPoligono(x, y, 61) && !pieza31seccionesSeleccionadas.includes(77)) pieza31seccionesSeleccionadas.push(77);
+    if (estaDentroPoligono(x, y, 62) && !pieza31seccionesSeleccionadas.includes(78)) pieza31seccionesSeleccionadas.push(78);
+    if (estaDentroPoligono(x, y, 63) && !pieza31seccionesSeleccionadas.includes(79)) pieza31seccionesSeleccionadas.push(79);
+    if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1) && !pieza31seccionesSeleccionadas.includes(80)) pieza31seccionesSeleccionadas.push(80);
+
+    if (estaDentroPoligono(x, y, 64) && !pieza32seccionesSeleccionadas.includes(81)) pieza32seccionesSeleccionadas.push(81);
+    if (estaDentroPoligono(x, y, 65) && !pieza32seccionesSeleccionadas.includes(82)) pieza32seccionesSeleccionadas.push(82);
+    if (estaDentroPoligono(x, y, 66) && !pieza32seccionesSeleccionadas.includes(83)) pieza32seccionesSeleccionadas.push(83);
+    if (estaDentroPoligono(x, y, 67) && !pieza32seccionesSeleccionadas.includes(84)) pieza32seccionesSeleccionadas.push(84);
+    if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1) && !pieza32seccionesSeleccionadas.includes(85)) pieza32seccionesSeleccionadas.push(85);
+
+    if (estaDentroPoligono(x, y, 68) && !pieza33seccionesSeleccionadas.includes(86)) pieza33seccionesSeleccionadas.push(86);
+    if (estaDentroPoligono(x, y, 69) && !pieza33seccionesSeleccionadas.includes(87)) pieza33seccionesSeleccionadas.push(87);
+    if (estaDentroPoligono(x, y, 70) && !pieza33seccionesSeleccionadas.includes(88)) pieza33seccionesSeleccionadas.push(88);
+    if (estaDentroPoligono(x, y, 71) && !pieza33seccionesSeleccionadas.includes(89)) pieza33seccionesSeleccionadas.push(89);
+    if (puntoEstaDentroDelCuadrado(x,y, 6.2,-2,1,1) && !pieza33seccionesSeleccionadas.includes(90)) pieza33seccionesSeleccionadas.push(90);
+
+    if (estaDentroPoligono(x, y, 72) && !pieza34seccionesSeleccionadas.includes(91)) pieza34seccionesSeleccionadas.push(91);
+    if (estaDentroPoligono(x, y, 73) && !pieza34seccionesSeleccionadas.includes(92)) pieza34seccionesSeleccionadas.push(92);
+    if (estaDentroPoligono(x, y, 74) && !pieza34seccionesSeleccionadas.includes(93)) pieza34seccionesSeleccionadas.push(93);
+    if (estaDentroPoligono(x, y, 75) && !pieza34seccionesSeleccionadas.includes(94)) pieza34seccionesSeleccionadas.push(94);
+    if (puntoEstaDentroDelCuadrado(x, y, 8.7, -2, 1, 1) && !pieza34seccionesSeleccionadas.includes(95)) pieza34seccionesSeleccionadas.push(95);
+
+    if (estaDentroPoligono(x, y, 76) && !pieza35seccionesSeleccionadas.includes(96)) pieza35seccionesSeleccionadas.push(96);
+    if (estaDentroPoligono(x, y, 77) && !pieza35seccionesSeleccionadas.includes(97)) pieza35seccionesSeleccionadas.push(97);
+    if (estaDentroPoligono(x, y, 78) && !pieza35seccionesSeleccionadas.includes(98)) pieza35seccionesSeleccionadas.push(98);
+    if (estaDentroPoligono(x, y, 79) && !pieza35seccionesSeleccionadas.includes(99)) pieza35seccionesSeleccionadas.push(99);
+    if (puntoEstaDentroDelCuadrado(x, y, 11.2, -2, 1, 1) && !pieza35seccionesSeleccionadas.includes(100)) pieza35seccionesSeleccionadas.push(100);
+
+    dibuja();
+    return;
+    }
+
+    if (modoPiezaSellante) {
+        if (puntoEstaDentroDelCuadrado(x,y,-2,1.2,1,1)) estadoP11 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,1.2,1,1)) estadoP12 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,-7,1.2,1,1)) estadoP13 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,-9.5,1.2,1,1)) estadoP14 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,-12,1.2,1,1)) estadoP15 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,1.2,1,1)) estadoP21 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1)) estadoP22 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1)) estadoP23 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1)) estadoP24 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1)) estadoP25 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1)) estadoP31 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1)) estadoP32 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,-2,1,1)) estadoP33 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,-2,1,1)) estadoP34 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,-2,1,1)) estadoP35 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,-2,-2,1,1)) estadoP41 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,-2,1,1)) estadoP42 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y, -7,-2,1,1)) estadoP43 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y, -9.5,-2,1,1)) estadoP44 = 4;
+        if (puntoEstaDentroDelCuadrado(x,y, -12,-2,1,1)) estadoP45 = 4;
+        dibuja();
+        return;
+    }
+
+     if (modoPiezaFracturado) {
+        if (puntoEstaDentroDelCuadrado(x,y,-2,1.2,1,1)) estadoP11 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,1.2,1,1)) estadoP12 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,-7,1.2,1,1))estadoP13 = 6;   
+        if (puntoEstaDentroDelCuadrado(x,y,-9.5,1.2,1,1)) estadoP14 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,-12,1.2,1,1)) estadoP15 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,1.2,1,1)) estadoP21 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1)) estadoP22 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1)) estadoP23 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1)) estadoP24 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1)) estadoP25 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1)) estadoP31 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1)) estadoP32 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,-2,1,1)) estadoP33 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,-2,1,1)) estadoP34 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,-2,1,1)) estadoP35 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,-2,-2,1,1)) estadoP41 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,-2,1,1)) estadoP42 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y, -7,-2,1,1)) estadoP43 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y, -9.5,-2,1,1)) estadoP44 = 6;
+        if (puntoEstaDentroDelCuadrado(x,y, -12,-2,1,1)) estadoP45 = 6;
+        dibuja();
+        return;
+    }
+    
+ if (modoPiezaRestauracion) {
+        estadoP11=5;
+        estadoP21=5;
+        estadoP22=5;
+        estadoP23=5;
+        estadoP24=5;
+        estadoP25=5;
+        estadoP12=5;
+        estadoP13=5;
+        estadoP14=5;
+        estadoP15=5;
+        estadoP41=5;
+        estadoP42=5;
+        estadoP43=5;
+        estadoP44=5;
+        estadoP45=5;
+        estadoP31=5;
+        estadoP32=5;
+        estadoP33=5;
+        estadoP34=5;
+        estadoP35=5;
+
+    if (estaDentroPoligono(x, y, 0) && !pieza11seccionesSeleccionadas.includes(1)) pieza11seccionesSeleccionadas.push(1);
+    if (estaDentroPoligono(x, y, 1) && !pieza11seccionesSeleccionadas.includes(2)) pieza11seccionesSeleccionadas.push(2);
+    if (estaDentroPoligono(x, y, 2) && !pieza11seccionesSeleccionadas.includes(3)) pieza11seccionesSeleccionadas.push(3);
+    if (estaDentroPoligono(x, y, 3) && !pieza11seccionesSeleccionadas.includes(4)) pieza11seccionesSeleccionadas.push(4);
+    if (estaDentroPoligono(x, y, 4) && !pieza21seccionesSeleccionadas.includes(6)) pieza21seccionesSeleccionadas.push(6);
+    if (estaDentroPoligono(x, y, 5) && !pieza21seccionesSeleccionadas.includes(7)) pieza21seccionesSeleccionadas.push(7);
+    if (estaDentroPoligono(x, y, 6) && !pieza21seccionesSeleccionadas.includes(8)) pieza21seccionesSeleccionadas.push(8);
+    if (estaDentroPoligono(x, y, 7) && !pieza21seccionesSeleccionadas.includes(9)) pieza21seccionesSeleccionadas.push(9);
+    if (puntoEstaDentroDelCuadrado(x, y, -2,1.2,1,1) && !pieza11seccionesSeleccionadas.includes(5)) pieza11seccionesSeleccionadas.push(5);
+    dibuja(); 
+    if (puntoEstaDentroDelCuadrado(x, y, 1.2,1.2,1,1) && !pieza21seccionesSeleccionadas.includes(10)) pieza21seccionesSeleccionadas.push(10);
+    if (estaDentroPoligono(x, y, 8) && !pieza12seccionesSeleccionadas.includes(11)) pieza12seccionesSeleccionadas.push(11);
+    if (estaDentroPoligono(x, y, 9) && !pieza12seccionesSeleccionadas.includes(12)) pieza12seccionesSeleccionadas.push(12);
+    if (estaDentroPoligono(x, y, 10) && !pieza12seccionesSeleccionadas.includes(13)) pieza12seccionesSeleccionadas.push(13);
+    if (estaDentroPoligono(x, y, 11) && !pieza12seccionesSeleccionadas.includes(14)) pieza12seccionesSeleccionadas.push(14);
+    if (puntoEstaDentroDelCuadrado(x, y, -4.5,1.2,1,1) && !pieza12seccionesSeleccionadas.includes(15)) pieza12seccionesSeleccionadas.push(15);
+
+    if (estaDentroPoligono(x, y, 12) && !pieza13seccionesSeleccionadas.includes(16)) pieza13seccionesSeleccionadas.push(16);
+    if (estaDentroPoligono(x, y, 13) && !pieza13seccionesSeleccionadas.includes(17)) pieza13seccionesSeleccionadas.push(17);
+    if (estaDentroPoligono(x, y, 14) && !pieza13seccionesSeleccionadas.includes(18)) pieza13seccionesSeleccionadas.push(18);
+    if (estaDentroPoligono(x, y, 15) && !pieza13seccionesSeleccionadas.includes(19)) pieza13seccionesSeleccionadas.push(19);
+    if (puntoEstaDentroDelCuadrado(x, y, -7,1.2,1,1) && !pieza13seccionesSeleccionadas.includes(20)) pieza13seccionesSeleccionadas.push(20);
+
+     if (estaDentroPoligono(x, y, 16) && !pieza14seccionesSeleccionadas.includes(21)) pieza14seccionesSeleccionadas.push(21);
+    if (estaDentroPoligono(x, y, 17) && !pieza14seccionesSeleccionadas.includes(22)) pieza14seccionesSeleccionadas.push(22);
+    if (estaDentroPoligono(x, y, 18) && !pieza14seccionesSeleccionadas.includes(23)) pieza14seccionesSeleccionadas.push(23);
+    if (estaDentroPoligono(x, y, 19) && !pieza14seccionesSeleccionadas.includes(24)) pieza14seccionesSeleccionadas.push(24);
+    if (puntoEstaDentroDelCuadrado(x, y, -9.5,1.2,1,1) && !pieza14seccionesSeleccionadas.includes(25)) pieza14seccionesSeleccionadas.push(25);
+
+    if (estaDentroPoligono(x, y, 20) && !pieza15seccionesSeleccionadas.includes(26)) pieza15seccionesSeleccionadas.push(26);
+    if (estaDentroPoligono(x, y, 21) && !pieza15seccionesSeleccionadas.includes(27)) pieza15seccionesSeleccionadas.push(27);
+    if (estaDentroPoligono(x, y, 22) && !pieza15seccionesSeleccionadas.includes(28)) pieza15seccionesSeleccionadas.push(28);
+    if (estaDentroPoligono(x, y, 23) && !pieza15seccionesSeleccionadas.includes(29)) pieza15seccionesSeleccionadas.push(29);
+    if (puntoEstaDentroDelCuadrado(x, y, -12,1.2,1,1) && !pieza15seccionesSeleccionadas.includes(30)) pieza15seccionesSeleccionadas.push(30);
+   
+
+    if (estaDentroPoligono(x, y, 24) && !pieza41seccionesSeleccionadas.includes(31)) pieza41seccionesSeleccionadas.push(31);
+    if (estaDentroPoligono(x, y, 25) && !pieza41seccionesSeleccionadas.includes(32)) pieza41seccionesSeleccionadas.push(32);
+    if (estaDentroPoligono(x, y, 26) && !pieza41seccionesSeleccionadas.includes(33)) pieza41seccionesSeleccionadas.push(33);
+    if (estaDentroPoligono(x, y, 27) && !pieza41seccionesSeleccionadas.includes(34)) pieza41seccionesSeleccionadas.push(34);
+    if (puntoEstaDentroDelCuadrado(x, y, -2,-2,1,1) && !pieza41seccionesSeleccionadas.includes(35)) pieza41seccionesSeleccionadas.push(35);
+
+    if (estaDentroPoligono(x, y, 28) && !pieza42seccionesSeleccionadas.includes(36)) pieza42seccionesSeleccionadas.push(36);
+    if (estaDentroPoligono(x, y, 29) && !pieza42seccionesSeleccionadas.includes(37)) pieza42seccionesSeleccionadas.push(37);
+    if (estaDentroPoligono(x, y, 30) && !pieza42seccionesSeleccionadas.includes(38)) pieza42seccionesSeleccionadas.push(38);
+    if (estaDentroPoligono(x, y, 31) && !pieza42seccionesSeleccionadas.includes(39)) pieza42seccionesSeleccionadas.push(39);
+    if (puntoEstaDentroDelCuadrado(x, y, -4.5,-2,1,1) && !pieza42seccionesSeleccionadas.includes(40)) pieza42seccionesSeleccionadas.push(40);
+
+    if (estaDentroPoligono(x, y, 32) && !pieza43seccionesSeleccionadas.includes(41)) pieza43seccionesSeleccionadas.push(41);
+    if (estaDentroPoligono(x, y, 33) && !pieza43seccionesSeleccionadas.includes(42)) pieza43seccionesSeleccionadas.push(42);
+    if (estaDentroPoligono(x, y, 34) && !pieza43seccionesSeleccionadas.includes(43)) pieza43seccionesSeleccionadas.push(43);
+    if (estaDentroPoligono(x, y, 35) && !pieza43seccionesSeleccionadas.includes(44)) pieza43seccionesSeleccionadas.push(44);
+    if (puntoEstaDentroDelCuadrado(x, y, -7,-2,1,1) && !pieza43seccionesSeleccionadas.includes(45)) pieza43seccionesSeleccionadas.push(45);
+
+    if (estaDentroPoligono(x, y, 36) && !pieza44seccionesSeleccionadas.includes(46)) pieza44seccionesSeleccionadas.push(46);
+    if (estaDentroPoligono(x, y, 37) && !pieza44seccionesSeleccionadas.includes(47)) pieza44seccionesSeleccionadas.push(47);
+    if (estaDentroPoligono(x, y, 38) && !pieza44seccionesSeleccionadas.includes(48)) pieza44seccionesSeleccionadas.push(48);
+    if (estaDentroPoligono(x, y, 39) && !pieza44seccionesSeleccionadas.includes(49)) pieza44seccionesSeleccionadas.push(49);
+    if (puntoEstaDentroDelCuadrado(x, y, -9.5,-2,1,1) && !pieza44seccionesSeleccionadas.includes(50)) pieza44seccionesSeleccionadas.push(50);
+
+    if (estaDentroPoligono(x, y, 40) && !pieza45seccionesSeleccionadas.includes(51)) pieza45seccionesSeleccionadas.push(51);
+    if (estaDentroPoligono(x, y, 41) && !pieza45seccionesSeleccionadas.includes(52)) pieza45seccionesSeleccionadas.push(52);
+    if (estaDentroPoligono(x, y, 42) && !pieza45seccionesSeleccionadas.includes(53)) pieza45seccionesSeleccionadas.push(53);
+    if (estaDentroPoligono(x, y, 43) && !pieza45seccionesSeleccionadas.includes(54)) pieza45seccionesSeleccionadas.push(54);
+    if (puntoEstaDentroDelCuadrado(x, y,-12,-2,1,1) && !pieza45seccionesSeleccionadas.includes(55)) pieza45seccionesSeleccionadas.push(55);
+
+    if (estaDentroPoligono(x, y, 44) && !pieza22seccionesSeleccionadas.includes(56)) pieza22seccionesSeleccionadas.push(56);
+    if (estaDentroPoligono(x, y, 45) && !pieza22seccionesSeleccionadas.includes(57)) pieza22seccionesSeleccionadas.push(57);
+    if (estaDentroPoligono(x, y, 46) && !pieza22seccionesSeleccionadas.includes(58)) pieza22seccionesSeleccionadas.push(58);
+    if (estaDentroPoligono(x, y, 47) && !pieza22seccionesSeleccionadas.includes(59)) pieza22seccionesSeleccionadas.push(59);
+    if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1) && !pieza22seccionesSeleccionadas.includes(60)) pieza22seccionesSeleccionadas.push(60);
+
+    if (estaDentroPoligono(x, y, 48) && !pieza23seccionesSeleccionadas.includes(61)) pieza23seccionesSeleccionadas.push(61);
+    if (estaDentroPoligono(x, y, 49) && !pieza23seccionesSeleccionadas.includes(62)) pieza23seccionesSeleccionadas.push(62);
+    if (estaDentroPoligono(x, y, 50) && !pieza23seccionesSeleccionadas.includes(63)) pieza23seccionesSeleccionadas.push(63);
+    if (estaDentroPoligono(x, y, 51) && !pieza23seccionesSeleccionadas.includes(64)) pieza23seccionesSeleccionadas.push(64);
+    if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1) && !pieza23seccionesSeleccionadas.includes(65)) pieza23seccionesSeleccionadas.push(65);
+
+    if (estaDentroPoligono(x, y, 52) && !pieza24seccionesSeleccionadas.includes(66)) pieza24seccionesSeleccionadas.push(66);
+    if (estaDentroPoligono(x, y, 53) && !pieza24seccionesSeleccionadas.includes(67)) pieza24seccionesSeleccionadas.push(67);
+    if (estaDentroPoligono(x, y, 54) && !pieza24seccionesSeleccionadas.includes(68)) pieza24seccionesSeleccionadas.push(68);
+    if (estaDentroPoligono(x, y, 55) && !pieza24seccionesSeleccionadas.includes(69)) pieza24seccionesSeleccionadas.push(69);
+    if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1) && !pieza24seccionesSeleccionadas.includes(70)) pieza24seccionesSeleccionadas.push(70);
+
+    if (estaDentroPoligono(x, y, 56) && !pieza25seccionesSeleccionadas.includes(71)) pieza25seccionesSeleccionadas.push(71);
+    if (estaDentroPoligono(x, y, 57) && !pieza25seccionesSeleccionadas.includes(72)) pieza25seccionesSeleccionadas.push(72);
+    if (estaDentroPoligono(x, y, 58) && !pieza25seccionesSeleccionadas.includes(73)) pieza25seccionesSeleccionadas.push(73);
+    if (estaDentroPoligono(x, y, 59) && !pieza25seccionesSeleccionadas.includes(74)) pieza25seccionesSeleccionadas.push(74);
+    if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1) && !pieza25seccionesSeleccionadas.includes(75)) pieza25seccionesSeleccionadas.push(75);
+
+     if (estaDentroPoligono(x, y, 60) && !pieza31seccionesSeleccionadas.includes(76)) pieza31seccionesSeleccionadas.push(76);
+    if (estaDentroPoligono(x, y, 61) && !pieza31seccionesSeleccionadas.includes(77)) pieza31seccionesSeleccionadas.push(77);
+    if (estaDentroPoligono(x, y, 62) && !pieza31seccionesSeleccionadas.includes(78)) pieza31seccionesSeleccionadas.push(78);
+    if (estaDentroPoligono(x, y, 63) && !pieza31seccionesSeleccionadas.includes(79)) pieza31seccionesSeleccionadas.push(79);
+    if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1) && !pieza31seccionesSeleccionadas.includes(80)) pieza31seccionesSeleccionadas.push(80);
+
+     if (estaDentroPoligono(x, y, 64) && !pieza32seccionesSeleccionadas.includes(81)) pieza32seccionesSeleccionadas.push(81);
+    if (estaDentroPoligono(x, y, 65) && !pieza32seccionesSeleccionadas.includes(82)) pieza32seccionesSeleccionadas.push(82);
+    if (estaDentroPoligono(x, y, 66) && !pieza32seccionesSeleccionadas.includes(83)) pieza32seccionesSeleccionadas.push(83);
+    if (estaDentroPoligono(x, y, 67) && !pieza32seccionesSeleccionadas.includes(84)) pieza32seccionesSeleccionadas.push(84);
+    if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1) && !pieza32seccionesSeleccionadas.includes(85)) pieza32seccionesSeleccionadas.push(85);
+
+    if (estaDentroPoligono(x, y, 68) && !pieza33seccionesSeleccionadas.includes(86)) pieza33seccionesSeleccionadas.push(86);
+    if (estaDentroPoligono(x, y, 69) && !pieza33seccionesSeleccionadas.includes(87)) pieza33seccionesSeleccionadas.push(87);
+    if (estaDentroPoligono(x, y, 70) && !pieza33seccionesSeleccionadas.includes(88)) pieza33seccionesSeleccionadas.push(88);
+    if (estaDentroPoligono(x, y, 71) && !pieza33seccionesSeleccionadas.includes(89)) pieza33seccionesSeleccionadas.push(89);
+    if (puntoEstaDentroDelCuadrado(x,y, 6.2,-2,1,1) && !pieza33seccionesSeleccionadas.includes(90)) pieza33seccionesSeleccionadas.push(90);
+
+    
+    if (estaDentroPoligono(x, y, 72) && !pieza34seccionesSeleccionadas.includes(91)) pieza34seccionesSeleccionadas.push(91);
+    if (estaDentroPoligono(x, y, 73) && !pieza34seccionesSeleccionadas.includes(92)) pieza34seccionesSeleccionadas.push(92);
+    if (estaDentroPoligono(x, y, 74) && !pieza34seccionesSeleccionadas.includes(93)) pieza34seccionesSeleccionadas.push(93);
+    if (estaDentroPoligono(x, y, 75) && !pieza34seccionesSeleccionadas.includes(94)) pieza34seccionesSeleccionadas.push(94);
+    if (puntoEstaDentroDelCuadrado(x, y, 8.7, -2, 1, 1) && !pieza34seccionesSeleccionadas.includes(95)) pieza34seccionesSeleccionadas.push(95);
+
+    if (estaDentroPoligono(x, y, 76) && !pieza35seccionesSeleccionadas.includes(96)) pieza35seccionesSeleccionadas.push(96);
+    if (estaDentroPoligono(x, y, 77) && !pieza35seccionesSeleccionadas.includes(97)) pieza35seccionesSeleccionadas.push(97);
+    if (estaDentroPoligono(x, y, 78) && !pieza35seccionesSeleccionadas.includes(98)) pieza35seccionesSeleccionadas.push(98);
+    if (estaDentroPoligono(x, y, 79) && !pieza35seccionesSeleccionadas.includes(99)) pieza35seccionesSeleccionadas.push(99);
+    if (puntoEstaDentroDelCuadrado(x, y, 11.2, -2, 1, 1) && !pieza35seccionesSeleccionadas.includes(100)) pieza35seccionesSeleccionadas.push(100);
+
+
+
+ return;
+    }
+
+   
+       if (modoPiezaExodoncia) {
+        if (puntoEstaDentroDelCuadrado(x,y,-2,1.2,1,1)) estadoP11 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,1.2,1,1)) estadoP12 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,-7,1.2,1,1)) estadoP13 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,-9.5,1.2,1,1)) estadoP14 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,-12,1.2,1,1)) estadoP15 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,1.2,1,1)) estadoP21 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,1.2,1,1)) estadoP22 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,1.2,1,1)) estadoP23 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,1.2,1,1)) estadoP24 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,1.2,1,1)) estadoP25 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,1.2,-2,1,1)) estadoP31 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,3.7,-2,1,1)) estadoP32 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,6.2,-2,1,1)) estadoP33 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,8.7,-2,1,1)) estadoP34 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,11.2,-2,1,1)) estadoP35 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,-2,-2,1,1)) estadoP41 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y,-4.5,-2,1,1)) estadoP42 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y, -7,-2,1,1)) estadoP43 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y, -9.5,-2,1,1)) estadoP44 = 7;
+        if (puntoEstaDentroDelCuadrado(x,y, -12,-2,1,1)) estadoP45 = 7;
+        dibuja();
+        return;
+    }
+
+    }
+
+    function dibuja(){
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        identidad(MatrizModelo);
+        gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+        gl.bindVertexArray(pieza11VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+      
+        if(estadoP11==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            estadoP11=0;
+            gl.uniform4f(uColor, 0,0,0,1);
+
+        }else if(estadoP11==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+            //gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP11==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza11seccionesSeleccionadas.forEach(sec => {
+            if(sec==5) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==1) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==2) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==3) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==4) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP11==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP11==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza11seccionesSeleccionadas.forEach(sec => {
+            if(sec==5) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==1) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==2) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==3) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==4) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP11==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP11==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+        gl.bindVertexArray(pieza12VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        if(estadoP12==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP12==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+            //gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP12==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza12seccionesSeleccionadas.forEach(sec => {
+            if(sec==15) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==11) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==12) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==13) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==14) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP12==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP12==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza12seccionesSeleccionadas.forEach(sec => {
+            if(sec==15) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==11) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==12) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==13) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==14) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP12==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP12==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+       // Dibujado de la pieza13
+gl.bindVertexArray(pieza13VAO);
+gl.uniform4f(uColor, 0,0,0,1);
+gl.drawArrays(gl.LINE_LOOP, 0, 4);
+gl.drawArrays(gl.LINE_LOOP, 4, 4);
+gl.drawArrays(gl.LINE_LOOP, 8, 4);
+gl.drawArrays(gl.LINE_LOOP, 12, 4);
+gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+if(estadoP13==1){
+    // seccion sana
+    gl.uniform4f(uColor, 0,0,1,1);
+    gl.drawArrays(gl.LINE_STRIP, 20, 8);
+    gl.uniform4f(uColor, 0,0,0,1);
+}else if(estadoP13==2){
+    // extraccion
+    gl.uniform4f(uColor, 1,0,0,1);
+    gl.drawArrays(gl.LINE_LOOP, 28, 2);
+    gl.drawArrays(gl.LINE_LOOP, 30, 2);
+}else if(estadoP13==3){
+    // caries
+    gl.uniform4f(uColor, 1,0,0,1);
+    pieza13seccionesSeleccionadas.forEach(sec => {
+        if(sec==20) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+        if(sec==16) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+        if(sec==17) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+        if(sec==18) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+        if(sec==19) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+    });
+}else if(estadoP13==4){
+    // sellante
+    gl.uniform4f(uColor, 0,0,1,1);
+    gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+}else if(estadoP13==5){
+    // restauracion
+    gl.uniform4f(uColor, 0,0,1,1);
+    pieza13seccionesSeleccionadas.forEach(sec => {
+        if(sec==20) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+        if(sec==16) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+        if(sec==17) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+        if(sec==18) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+        if(sec==19) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+    });
+}else if(estadoP13==6){
+    // fractura
+    gl.uniform4f(uColor, 1,0,0,1);
+    gl.drawArrays(gl.LINE_STRIP, 76, 2);
+}else if(estadoP13==7){
+    // exodoncia
+    gl.uniform4f(uColor, 0,0,1,1);
+    gl.drawArrays(gl.LINE_LOOP, 78, 2);
+    gl.drawArrays(gl.LINE_LOOP, 80, 2);
+
+}
+
+        gl.bindVertexArray(pieza14VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+          if(estadoP14==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+
+        }else if(estadoP14==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+            //gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP14==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza14seccionesSeleccionadas.forEach(sec => {
+            if(sec==25) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==21) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==22) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==23) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==24) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP14==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP14==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza14seccionesSeleccionadas.forEach(sec => {
+            if(sec==25) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==21) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==22) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==23) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==24) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP14==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP14==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+
+        gl.bindVertexArray(pieza15VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+          if(estadoP15==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+
+        }else if(estadoP15==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+            //gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP15==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza15seccionesSeleccionadas.forEach(sec => {
+            if(sec==30) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==26) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==27) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==28) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==29) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP15==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP15==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza15seccionesSeleccionadas.forEach(sec => {
+           if(sec==25) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==21) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==22) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==23) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==24) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP15==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP15==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+        gl.bindVertexArray(pieza21VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        if(estadoP21==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP21==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP21==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza21seccionesSeleccionadas.forEach(sec => {
+            if(sec==10) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==6) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==7) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==8) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==9) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP21==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP21==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza21seccionesSeleccionadas.forEach(sec => {
+            if(sec==10) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==6) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==7) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==8) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==9) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP21==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP21==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+        gl.bindVertexArray(pieza22VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+         if(estadoP22==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP22==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP22==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza22seccionesSeleccionadas.forEach(sec => {
+            if(sec==60) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==56) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==57) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==58) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==99) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP22==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP22==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza22seccionesSeleccionadas.forEach(sec => {
+            if(sec==60) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==56) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==57) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==58) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==59) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP22==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP22==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+        gl.bindVertexArray(pieza23VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+         if(estadoP23==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP23==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP23==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza23seccionesSeleccionadas.forEach(sec => {
+            if(sec==65) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==61) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==62) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==63) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==64) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP23==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP23==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza23seccionesSeleccionadas.forEach(sec => {
+            if(sec==65) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==61) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==62) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==63) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==64) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP23==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP23==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+        gl.bindVertexArray(pieza24VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+          if(estadoP24==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP24==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP24==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza24seccionesSeleccionadas.forEach(sec => {
+            if(sec==70) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==66) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==67) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==68) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==69) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP24==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP24==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza24seccionesSeleccionadas.forEach(sec => {
+            if(sec==70) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==66) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==67) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==68) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==69) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP24==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP24==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+        gl.bindVertexArray(pieza25VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+        if(estadoP25==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP25==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP25==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza25seccionesSeleccionadas.forEach(sec => {
+            if(sec==75) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==71) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==72) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==73) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==74) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP25==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP25==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza25seccionesSeleccionadas.forEach(sec => {
+            if(sec==75) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==71) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==72) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==73) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==74) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP25==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP25==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+        gl.bindVertexArray(pieza41VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+         if(estadoP41==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP41==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP41==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza41seccionesSeleccionadas.forEach(sec => {
+            if(sec==35) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==31) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==32) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==33) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==34) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP41==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP41==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza41seccionesSeleccionadas.forEach(sec => {
+            if(sec==35) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==31) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==32) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==33) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==34) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP41==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP41==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+        gl.bindVertexArray(pieza42VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        if(estadoP42==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP42==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP42==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza42seccionesSeleccionadas.forEach(sec => {
+            if(sec==40) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==36) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==37) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==38) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==39) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP42==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP42==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza42seccionesSeleccionadas.forEach(sec => {
+            if(sec==40) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==36) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==37) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==38) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==39) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP42==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP42==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+         gl.bindVertexArray(pieza43VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        if(estadoP43==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP43==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP43==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza43seccionesSeleccionadas.forEach(sec => {
+            if(sec==45) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==41) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==42) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==43) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==44) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP43==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP43==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza43seccionesSeleccionadas.forEach(sec => {
+            if(sec==45) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==41) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==42) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==43) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==44) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP43==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP43==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+         gl.bindVertexArray(pieza44VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+          if(estadoP44==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP44==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP44==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza44seccionesSeleccionadas.forEach(sec => {
+            if(sec==50) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==46) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==47) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==48) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==49) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP44==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP44==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza44seccionesSeleccionadas.forEach(sec => {
+            if(sec==50) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==46) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==47) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==48) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==49) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP44==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP44==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+        gl.bindVertexArray(pieza45VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+          if(estadoP45==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP45==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP45==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza45seccionesSeleccionadas.forEach(sec => {
+            if(sec==55) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==51) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==52) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==53) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==54) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP45==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP45==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza45seccionesSeleccionadas.forEach(sec => {
+            if(sec==55) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==51) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==52) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==53) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==54) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });
+        }else if(estadoP45==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP45==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+        gl.bindVertexArray(pieza31VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+         if(estadoP31==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP31==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP31==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza31seccionesSeleccionadas.forEach(sec => {
+            if(sec==80) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==76) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==77) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==78) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==79) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP31==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP31==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza31seccionesSeleccionadas.forEach(sec => {
+            if(sec==80) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==76) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==77) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==78) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==79) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });}else if(estadoP31==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP31==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+         gl.bindVertexArray(pieza32VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        
+         if(estadoP32==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP32==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP32==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza32seccionesSeleccionadas.forEach(sec => {
+            if(sec==85) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==81) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==82) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==83) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==84) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP32==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP32==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza32seccionesSeleccionadas.forEach(sec => {
+            if(sec==85) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==81) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==82) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==83) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==84) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });}else if(estadoP32==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP32==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+        gl.bindVertexArray(pieza33VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        if(estadoP33==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP33==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP33==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza33seccionesSeleccionadas.forEach(sec => {
+            if(sec==90) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==86) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==87) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==88) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==89) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP33==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP33==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza33seccionesSeleccionadas.forEach(sec => {
+            if(sec==90) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==86) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==87) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==88) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==89) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });}else if(estadoP33==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP33==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+
+         gl.bindVertexArray(pieza34VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        if(estadoP34==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP34==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP34==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza34seccionesSeleccionadas.forEach(sec => {
+            if(sec==95) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==91) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==92) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==93) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==94) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP34==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP34==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza34seccionesSeleccionadas.forEach(sec => {
+            if(sec==95) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==91) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==92) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==93) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==94) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });}else if(estadoP34==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP34==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+         gl.bindVertexArray(pieza35VAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+          if(estadoP35==1){
+            //seccion sana
+            gl.uniform4f(uColor, 0,0,1,1); 
+            gl.drawArrays(gl.LINE_STRIP, 20, 8);
+            gl.uniform4f(uColor, 0,0,0,1);
+        }else if(estadoP35==2){
+            //extraccion
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_LOOP, 28, 2);
+            gl.drawArrays(gl.LINE_LOOP, 30, 2);
+        }else if(estadoP35==3){
+            //caries
+            gl.uniform4f(uColor, 1,0,0,1);
+            pieza35seccionesSeleccionadas.forEach(sec => {
+            if(sec==100) gl.drawArrays(gl.TRIANGLE_FAN, 32, 4);
+            if(sec==96) gl.drawArrays(gl.TRIANGLE_FAN, 36, 4);
+            if(sec==97) gl.drawArrays(gl.TRIANGLE_FAN, 40, 4);
+            if(sec==98) gl.drawArrays(gl.TRIANGLE_FAN, 44, 4);
+            if(sec==99) gl.drawArrays(gl.TRIANGLE_FAN, 48, 4);
+            });
+        }else if(estadoP35==4){
+            //sellante
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.TRIANGLE_FAN, 52, 4);
+        }else if(estadoP35==5){
+            //restauracion
+            gl.uniform4f(uColor, 0,0,1,1);
+            pieza35seccionesSeleccionadas.forEach(sec => {
+            if(sec==100) gl.drawArrays(gl.TRIANGLE_FAN, 56, 4);
+            if(sec==96) gl.drawArrays(gl.TRIANGLE_FAN, 60, 4);
+            if(sec==97) gl.drawArrays(gl.TRIANGLE_FAN, 64, 4);
+            if(sec==98) gl.drawArrays(gl.TRIANGLE_FAN, 68, 4);
+            if(sec==99) gl.drawArrays(gl.TRIANGLE_FAN, 72, 4);
+        });}else if(estadoP35==6){
+            //fractura
+            gl.uniform4f(uColor, 1,0,0,1);
+            gl.drawArrays(gl.LINE_STRIP, 76, 2);
+        }else if(estadoP35==7){
+            //exodoncia
+            gl.uniform4f(uColor, 0,0,1,1);
+            gl.drawArrays(gl.LINE_LOOP, 78, 2);
+            gl.drawArrays(gl.LINE_LOOP, 80, 2);
+        }
+
+       
+             // Pieza sana
+        gl.bindVertexArray(piezasanaVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        gl.uniform4f(uColor, 0,0,1,1); 
+        gl.drawArrays(gl.LINE_STRIP, 20, 8);
+        
+          // Pieza extraida
+        gl.bindVertexArray(piezaextraidaVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+        gl.uniform4f(uColor, 1,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 20, 2);
+        gl.drawArrays(gl.LINE_LOOP, 22, 2);
+
+            // Pieza caries
+        gl.bindVertexArray(piezacariesVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+        gl.uniform4f(uColor, 1,0,0,1);
+        gl.drawArrays(gl.TRIANGLE_FAN, 20, 4); 
+
+            // Pieza restauracion
+        gl.bindVertexArray(piezarestauracionVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+        gl.uniform4f(uColor, 0,0,1,1);
+        gl.drawArrays(gl.TRIANGLE_FAN, 20, 4); 
+        gl.drawArrays(gl.TRIANGLE_FAN, 24, 4);
+        
+        
+            // Pieza sellante
+        gl.bindVertexArray(piezasellanteVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+        gl.uniform4f(uColor, 0,0,1,1);
+        gl.drawArrays(gl.TRIANGLE_FAN, 20, 4);
+              // Pieza fracturado
+        gl.bindVertexArray(piezafracturadoVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+        gl.uniform4f(uColor, 1,0,0,1);
+        gl.drawArrays(gl.LINE_STRIP, 20, 2); 
+
+             // Pieza exodoncia
+        gl.bindVertexArray(piezaexodonciaVAO);
+        gl.uniform4f(uColor, 0,0,0,1); 
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+        gl.drawArrays(gl.LINE_LOOP, 4, 4);
+        gl.drawArrays(gl.LINE_LOOP, 8, 4);
+        gl.drawArrays(gl.LINE_LOOP, 12, 4);
+        gl.drawArrays(gl.LINE_LOOP, 16, 4);
+
+        gl.uniform4f(uColor, 0,0,1,1);
+        gl.drawArrays(gl.LINE_STRIP, 20, 2); 
+        gl.drawArrays(gl.LINE_STRIP, 22, 2); 
+
+         gl.bindVertexArray(margenVAO);
+        gl.uniform4f(uColor, 0,0,0,1);
+        gl.drawArrays(gl.LINE_LOOP, 0, 4);
+
+        //gl.bindVertexArray(null);
+
+        // Texto en canvas 2D
+
+        
+
+    ctxText.clearRect(0,0,800,650);
+    ctxText.fillStyle="black";
+    ctxText.font="10px Comic Sans MS";
+
+    ctxText.fillText("NOMENCLATURA ODONTODIAGRAMA ",310,100);
+    ctxText.fillText("ODONTOGRAMA INFANTIL",340,240);
+
+    ctxText.fillText("55",160,280);
+    ctxText.fillText("54",210,280);
+    ctxText.fillText("53",260,280);
+    ctxText.fillText("52",310,280);
+    ctxText.fillText("51",360,280);
+
+    ctxText.fillText("61",425,280);
+    ctxText.fillText("62",475,280);
+    ctxText.fillText("63",525,280);
+    ctxText.fillText("64",575,280);
+    ctxText.fillText("65",625,280);
+
+
+    ctxText.fillText("85",160,380);
+    ctxText.fillText("84",210,380);
+    ctxText.fillText("83",260,380);
+    ctxText.fillText("82",310,380);
+    ctxText.fillText("81",360,380);
+
+    ctxText.fillText("71",425,380);
+    ctxText.fillText("72",475,380);
+    ctxText.fillText("73",525,380);
+    ctxText.fillText("74",575,380);
+    ctxText.fillText("75",625,380);
+
+    ctxText.fillText("Diente ",170,130);
+    ctxText.fillText("exodoncia",165,140);
+
+    ctxText.fillText("Diente ",230,130);
+    ctxText.fillText("fracturado",220,140);
+
+    ctxText.fillText("Diente ",295,130);
+    ctxText.fillText("sellantes",290,140);
+
+    ctxText.fillText("Diente ",355,130);
+    ctxText.fillText("sano",360,140);
+
+    ctxText.fillText("Diente ",415,130);         
+    ctxText.fillText("extraido",410,140);
+    
+    ctxText.fillText("Diente ",475,130);
+    ctxText.fillText("caries",477,140);
+
+    ctxText.fillText("Diente ",535,130);
+    ctxText.fillText("restaurado",525,140);
+    }
+
+    function main(){
+        canvas = document.getElementById("webglcanvas");
+        gl = canvas.getContext("webgl2");
+         ctxText=document.getElementById("textCanvas").getContext("2d");
+        gl.viewport(0,0,canvas.width, canvas.height);
+
+        canvas.addEventListener("mousedown", mouseDown, false);
+
+        let shaderDeVertice = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(shaderDeVertice, document.getElementById("vs").text.trim());
+        gl.compileShader(shaderDeVertice);
+
+        let shaderDeFragmento = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(shaderDeFragmento, document.getElementById("fs").text.trim());
+        gl.compileShader(shaderDeFragmento);
+
+        let programaID = gl.createProgram();
+        gl.attachShader(programaID, shaderDeVertice);
+        gl.attachShader(programaID, shaderDeFragmento);
+        gl.linkProgram(programaID);
+        gl.useProgram(programaID);
+
+        // Vértices del diente
+        let pieza11 = [
+            //11
+            // centro
+            -2,1.2, -1.2,1.2, -1.2,2, -2,2,
+            // lateral superior
+            -2,2, -1.2,2, -0.6,2.6, -2.6,2.6,
+            // lateral izquierdo
+            -2.6,0.6, -2,1.2, -2,2, -2.6,2.6,
+            // lateral inferior
+            -2.6,0.6, -0.6,0.6, -1.2,1.2, -2,1.2,
+            // lateral derecho
+            -1.2,1.2, -0.6,0.6, -0.6,2.6, -1.2,2,
+
+            //seccion sana
+            -2,1,
+            -2,0.7,
+            -1.1,0.7,
+            -1.1,1.1,
+            -2,1.8,
+            -2,2.3,
+            -1.1,2.3,
+            -1.1,2.1,
+
+            //seccion extraccion
+            -2.6,0.6,
+            -0.6,2.6,
+            -2.6,2.6,
+            -0.6,0.6,
+
+               // seccion caries
+            -2,1.2, -1.2,1.2, -1.2,2, -2,2,
+            // seccion lateral superior
+            -2,2, -1.2,2, -0.6,2.6, -2.6,2.6,
+            // seccion lateral izquierdo
+            -2.6,0.6, -2,1.2, -2,2, -2.6,2.6,
+            // seccion lateral inferior
+            -2.6,0.6, -0.6,0.6, -1.2,1.2, -2,1.2,
+            // seccion lateral derecho
+            -1.2,1.2, -0.6,0.6, -0.6,2.6, -1.2,2,
+
+               // seccion centro sellante
+            -2,1.2, -1.2,1.2, -1.2,2, -2,2,
+
+            //seccion restauracion
+              // seccion centro
+            -2,1.2, -1.2,1.2, -1.2,2, -2,2,
+            // seccion lateral superior
+            -2,2, -1.2,2, -0.6,2.6, -2.6,2.6,
+            // seccion lateral izquierdo
+            -2.6,0.6, -2,1.2, -2,2, -2.6,2.6,
+            // seccion lateral inferior
+            -2.6,0.6, -0.6,0.6, -1.2,1.2, -2,1.2,
+            // seccion lateral derecho
+            -1.2,1.2, -0.6,0.6, -0.6,2.6, -1.2,2,
+
+            //seccion fracturado
+             -0.6,1.6,-1.5,2.6,
+
+            //seccion exondoncia 
+            -2.6,0.6,
+            -0.6,2.6,
+            -2.6,2.6,
+            -0.6,0.6,
+        ];
+        let pieza12 = [
+              // centro
+            -4.5,1.2, -3.7,1.2, -3.7,2, -4.5,2,
+            // lateral superior
+            -4.5,2, -3.7,2, -3.1,2.6, -5.1,2.6,
+            // lateral izquierdo
+            -5.1,0.6, -4.5,1.2, -4.5,2, -5.1,2.6,
+            // lateral inferior
+            -5.1,0.6, -3.1,0.6, -3.7,1.2, -4.5,1.2,
+            // lateral derecho
+            -3.7,1.2, -3.1,0.6, -3.1,2.6, -3.7,2,
+
+             // seccion sana
+            -4.5,1,
+            -4.5,0.7,
+            -3.6,0.7,
+            -3.6,1.1,
+            -4.5,1.8,
+            -4.5,2.3,
+            -3.6,2.3,
+            -3.6,2.1,
+
+            // seccion extraccion
+            -5.1,0.6,
+            -3.1,2.6,
+            -5.1,2.6,
+            -3.1,0.6,
+            // seccion caries
+            -4.5,1.2, -3.7,1.2, -3.7,2, -4.5,2,
+            // lateral superior
+            -4.5,2, -3.7,2, -3.1,2.6, -5.1,2.6,
+            // lateral izquierdo
+            -5.1,0.6, -4.5,1.2, -4.5,2, -5.1,2.6,
+            // lateral inferior
+            -5.1,0.6, -3.1,0.6, -3.7,1.2, -4.5,1.2,
+            // lateral derecho
+            -3.7,1.2, -3.1,0.6, -3.1,2.6, -3.7,2,
+
+            // centro
+            -4.5,1.2, -3.7,1.2, -3.7,2, -4.5,2,
+
+              // centro
+            -4.5,1.2, -3.7,1.2, -3.7,2, -4.5,2,
+            // lateral superior
+            -4.5,2, -3.7,2, -3.1,2.6, -5.1,2.6,
+            // lateral izquierdo
+            -5.1,0.6, -4.5,1.2, -4.5,2, -5.1,2.6,
+            // lateral inferior
+            -5.1,0.6, -3.1,0.6, -3.7,1.2, -4.5,1.2,
+            // lateral derecho
+            -3.7,1.2, -3.1,0.6, -3.1,2.6, -3.7,2,
+             // seccion fracturado
+            -3.1,1.6, -4,2.6,
+
+             // seccion exodoncia
+            -5.1,0.6,
+            -3.1,2.6,
+            -5.1,2.6,
+            -3.1,0.6
+        ];
+
+    let pieza13 = [
+    // centro
+    -7,1.2, -6.2,1.2, -6.2,2, -7,2,
+    // lateral superior
+    -7,2, -6.2,2, -5.6,2.6, -7.6,2.6,
+    // lateral izquierdo
+    -7.6,0.6, -7,1.2, -7,2, -7.6,2.6,
+    // lateral inferior
+    -7.6,0.6, -5.6,0.6, -6.2,1.2, -7,1.2,
+    // lateral derecho
+    -6.2,1.2, -5.6,0.6, -5.6,2.6, -6.2,2,
+
+        // seccion sana
+    -7,1,
+    -7,0.7,
+    -6.1,0.7,
+    -6.1,1.1,
+    -7,1.8,
+    -7,2.3,
+    -6.1,2.3,
+    -6.1,2.1,
+
+    // seccion extraccion
+    -7.6,0.6,
+    -5.6,2.6,
+    -7.6,2.6,
+    -5.6,0.6,
+
+    // seccion caries
+       -7,1.2, -6.2,1.2, -6.2,2, -7,2,
+    // lateral superior
+    -7,2, -6.2,2, -5.6,2.6, -7.6,2.6,
+    // lateral izquierdo
+    -7.6,0.6, -7,1.2, -7,2, -7.6,2.6,
+    // lateral inferior
+    -7.6,0.6, -5.6,0.6, -6.2,1.2, -7,1.2,
+    // lateral derecho
+    -6.2,1.2, -5.6,0.6, -5.6,2.6, -6.2,2,
+
+    // centro sellante
+    -7,1.2, -6.2,1.2, -6.2,2, -7,2,
+
+    // seccion restauracion
+    -7,1.2, -6.2,1.2, -6.2,2, -7,2,
+    // lateral superior
+    -7,2, -6.2,2, -5.6,2.6, -7.6,2.6,
+    // lateral izquierdo
+    -7.6,0.6, -7,1.2, -7,2, -7.6,2.6,
+    // lateral inferior
+    -7.6,0.6, -5.6,0.6, -6.2,1.2, -7,1.2,
+    // lateral derecho
+    -6.2,1.2, -5.6,0.6, -5.6,2.6, -6.2,2,
+
+    // seccion fracturado
+     -5.6,1.6, -6.5,2.6,
+
+    // seccion exodoncia
+     -7.6,0.6,
+    -5.6,2.6,
+    -7.6,2.6,
+    -5.6,0.6,
+
+
+
+];
+let pieza14 = [
+    // centro
+    -9.5,1.2, -8.7,1.2, -8.7,2, -9.5,2,
+    // lateral superior
+    -9.5,2, -8.7,2, -8.1,2.6, -10.1,2.6,
+    // lateral izquierdo
+    -10.1,0.6, -9.5,1.2, -9.5,2, -10.1,2.6,
+    // lateral inferior
+    -10.1,0.6, -8.1,0.6, -8.7,1.2, -9.5,1.2,
+    // lateral derecho
+    -8.7,1.2, -8.1,0.6, -8.1,2.6, -8.7,2,
+
+    
+    // seccion sana
+    -9.5,1,
+    -9.5,0.7,
+    -8.6,0.7,
+    -8.6,1.1,
+    -9.5,1.8,
+    -9.5,2.3,
+    -8.6,2.3,
+    -8.6,2.1,
+
+    // seccion extraccion
+    -10.1,0.6,
+    -8.1,2.6,
+    -10.1,2.6,
+    -8.1,0.6,
+
+    // seccion caries
+    -9.5,1.2, -8.7,1.2, -8.7,2, -9.5,2,
+    -9.5,2, -8.7,2, -8.1,2.6, -10.1,2.6,
+    -10.1,0.6, -9.5,1.2, -9.5,2, -10.1,2.6,
+    -10.1,0.6, -8.1,0.6, -8.7,1.2, -9.5,1.2,
+    -8.7,1.2, -8.1,0.6, -8.1,2.6, -8.7,2,
+
+    // centro repetido
+    -9.5,1.2, -8.7,1.2, -8.7,2, -9.5,2,
+
+     // centro
+    -9.5,1.2, -8.7,1.2, -8.7,2, -9.5,2,
+    // lateral superior
+    -9.5,2, -8.7,2, -8.1,2.6, -10.1,2.6,
+    // lateral izquierdo
+    -10.1,0.6, -9.5,1.2, -9.5,2, -10.1,2.6,
+    // lateral inferior
+    -10.1,0.6, -8.1,0.6, -8.7,1.2, -9.5,1.2,
+    // lateral derecho
+    -8.7,1.2, -8.1,0.6, -8.1,2.6, -8.7,2,
+
+    // seccion fracturado
+    -8.1,1.6, -8.9,2.6,
+
+    // seccion exodoncia
+    -10.1,0.6,
+    -8.1,2.6,
+    -10.1,2.6,
+    -8.1,0.6
+
+];
+let pieza15 = [
+    // centro
+    -12,1.2, -11.2,1.2, -11.2,2, -12,2,
+    // lateral superior
+    -12,2, -11.2,2, -10.6,2.6, -12.6,2.6,
+    // lateral izquierdo
+    -12.6,0.6, -12,1.2, -12,2, -12.6,2.6,
+    // lateral inferior
+    -12.6,0.6, -10.6,0.6, -11.2,1.2, -12,1.2,
+    // lateral derecho
+    -11.2,1.2, -10.6,0.6, -10.6,2.6, -11.2,2,
+
+    // seccion sana
+    -12,1,
+    -12,0.7,
+    -11.1,0.7,
+    -11.1,1.1,
+    -12,1.8,
+    -12,2.3,
+    -11.1,2.3,
+    -11.1,2.1,
+
+    // seccion extraccion
+    -12.6,0.6,
+    -10.6,2.6,
+    -12.6,2.6,
+    -10.6,0.6,
+
+    // seccion caries 
+    -12,1.2, -11.2,1.2, -11.2,2, -12,2,           // centro
+    -12,2, -11.2,2, -10.6,2.6, -12.6,2.6,        // lateral superior
+    -12.6,0.6, -12,1.2, -12,2, -12.6,2.6,        // lateral izquierdo
+    -12.6,0.6, -10.6,0.6, -11.2,1.2, -12,1.2,    // lateral inferior
+    -11.2,1.2, -10.6,0.6, -10.6,2.6, -11.2,2,    // lateral derecho
+
+   
+    // seccion sellante
+    -12,1.2, -11.2,1.2, -11.2,2, -12,2,       // ejemplo, ajustar a área de sellante
+
+    // seccion restauracion 
+    -12,1.2, -11.2,1.2, -11.2,2, -12,2,           // centro
+    -12,2, -11.2,2, -10.6,2.6, -12.6,2.6,        // lateral superior
+    -12.6,0.6, -12,1.2, -12,2, -12.6,2.6,        // lateral izquierdo
+    -12.6,0.6, -10.6,0.6, -11.2,1.2, -12,1.2,    // lateral inferior
+    -11.2,1.2, -10.6,0.6, -10.6,2.6, -11.2,2,    // lateral derecho
+
+    // seccion fracturado
+    -10.6,1.6, -11.5,2.6,
+
+    // seccion exodoncia
+    -12.6,0.6,
+    -10.6,2.6,
+    -12.6,2.6,
+    -10.6,0.6
+];
+
+
+
+        let pieza21 = [
+
+            //21
+            // centro
+            1.2,1.2, 2,1.2, 2,2, 1.2,2,
+            // lateral superior
+            2,2, 1.2,2, 0.6,2.6, 2.6,2.6,
+            // lateral izquierdo
+            2.6,0.6, 2,1.2, 2,2, 2.6,2.6,
+            // lateral inferior
+            2.6,0.6, 0.6,0.6, 1.2,1.2, 2,1.2,
+            // lateral derecho
+            1.2,1.2, 0.6,0.6, 0.6,2.6, 1.2,2,
+
+              // sección sana
+            1.1,1.2,
+            1.1,0.8,
+            2,0.8,
+            2,1.1,
+            1.1,1.8,
+            1.1,2.3,
+            2,2.3,
+            2,2.1,
+
+
+            //extraccion
+            0.7,0.6,
+            2.6,2.6,
+            2.7,0.5,
+            0.6,2.6,
+
+            // sección centro
+            1.2,1.2, 2,1.2, 2,2, 1.2,2,
+            // sección lateral superior
+            2,2, 1.2,2, 0.6,2.6, 2.6,2.6,
+            // sección lateral izquierdo
+             2.6,0.6, 2,1.2, 2,2, 2.6,2.6,
+            // sección lateral inferior
+             2.6,0.6, 0.6,0.6, 1.2,1.2, 2,1.2,
+            // sección lateral derecho
+             1.2,1.2, 0.6,0.6, 0.6,2.6, 1.2,2,
+
+                 // sellante
+            1.2,1.2, 2,1.2, 2,2, 1.2,2,
+
+            // sección restauración
+            // sección centro
+            1.2,1.2, 2,1.2, 2,2, 1.2,2,
+            // sección lateral superior
+            2,2, 1.2,2, 0.6,2.6, 2.6,2.6,
+            // sección lateral izquierdo
+            2.6,0.6, 2,1.2, 2,2, 2.6,2.6,
+            // sección lateral inferior
+            2.6,0.6, 0.6,0.6, 1.2,1.2, 2,1.2,
+            // sección lateral derecho
+            1.2,1.2, 0.6,0.6, 0.6,2.6, 1.2,2,
+
+            // sección fracturado
+            2.6,1.6, 1.5,2.6,
+
+            // sección exodoncia
+            0.6,0.6,
+            2.6,2.6,
+            0.6,2.6,
+            2.7,0.5,
+
+        ];
+
+       let pieza22 = [
+            // centro
+            3.7,1.2, 4.5,1.2, 4.5,2, 3.7,2,
+            // lateral superior
+            4.5,2, 3.7,2, 3.1,2.6, 5.1,2.6,
+            // lateral izquierdo
+            5.1,0.6, 4.5,1.2, 4.5,2, 5.1,2.6,
+            // lateral inferior
+            5.1,0.6, 3.1,0.6, 3.7,1.2, 4.5,1.2,
+            // lateral derecho
+            3.7,1.2, 3.1,0.6, 3.1,2.6, 3.7,2,
+            
+             // seccion sana
+            3.7,1, 3.7,0.7, 4.6,0.7, 4.6,1.1, 
+            3.7,1.8, 3.7,2.3, 4.6,2.3, 4.6,2.1,
+            
+             // seccion extraccion
+            3.1,0.6, 5.1,2.6, 5.1,0.6, 3.1,2.6,
+
+              // caries
+            3.7,1.2, 4.5,1.2, 4.5,2, 3.7,2,
+            // lateral superior
+            4.5,2, 3.7,2, 3.1,2.6, 5.1,2.6,
+            // lateral izquierdo
+            5.1,0.6, 4.5,1.2, 4.5,2, 5.1,2.6,
+            // lateral inferior
+            5.1,0.6, 3.1,0.6, 3.7,1.2, 4.5,1.2,
+            // lateral derecho
+            3.7,1.2, 3.1,0.6, 3.1,2.6, 3.7,2,
+
+             // sellante
+            3.7,1.2, 4.5,1.2, 4.5,2, 3.7,2,
+
+            //seccion restauracion
+             3.7,1.2, 4.5,1.2, 4.5,2, 3.7,2,
+            // lateral superior
+            4.5,2, 3.7,2, 3.1,2.6, 5.1,2.6,
+            // lateral izquierdo
+            5.1,0.6, 4.5,1.2, 4.5,2, 5.1,2.6,
+            // lateral inferior
+            5.1,0.6, 3.1,0.6, 3.7,1.2, 4.5,1.2,
+            // lateral derecho
+            3.7,1.2, 3.1,0.6, 3.1,2.6, 3.7,2,
+
+             // fracturado
+            5,1.5, 4,2.6,
+
+            // exodoncia
+             3.1,0.6, 5.1,2.6, 3.1,2.6, 5.1,0.6
+
+        ];
+
+        let pieza23 = [
+    // centro
+    6.2,1.2, 7,1.2, 7,2, 6.2,2,
+    // lateral superior
+    7,2, 6.2,2, 5.6,2.6, 7.6,2.6,
+    // lateral izquierdo
+    7.6,0.6, 7,1.2, 7,2, 7.6,2.6,
+    // lateral inferior
+    7.6,0.6, 5.6,0.6, 6.2,1.2, 7,1.2,
+    // lateral derecho
+    6.2,1.2, 5.6,0.6, 5.6,2.6, 6.2,2,
+
+    
+    // seccion sana
+    6.2,1, 6.2,0.7, 7.1,0.7, 7.1,1.1, 
+    6.2,1.8, 6.2,2.3, 7.1,2.3, 7.1,2.1,
+
+    // seccion extraccion
+    5.6,0.6, 7.6,2.6, 7.6,0.6, 5.6,2.6,
+
+    //seccion caries
+     6.2,1.2, 7,1.2, 7,2, 6.2,2,
+    // lateral superior
+    7,2, 6.2,2, 5.6,2.6, 7.6,2.6,
+    // lateral izquierdo
+    7.6,0.6, 7,1.2, 7,2, 7.6,2.6,
+    // lateral inferior
+    7.6,0.6, 5.6,0.6, 6.2,1.2, 7,1.2,
+    // lateral derecho
+    6.2,1.2, 5.6,0.6, 5.6,2.6, 6.2,2,
+
+
+    // sellante
+    6.2,1.2, 7,1.2, 7,2, 6.2,2,
+
+    // restauracion
+     6.2,1.2, 7,1.2, 7,2, 6.2,2,
+    // lateral superior
+    7,2, 6.2,2, 5.6,2.6, 7.6,2.6,
+    // lateral izquierdo
+    7.6,0.6, 7,1.2, 7,2, 7.6,2.6,
+    // lateral inferior
+    7.6,0.6, 5.6,0.6, 6.2,1.2, 7,1.2,
+    // lateral derecho
+    6.2,1.2, 5.6,0.6, 5.6,2.6, 6.2,2,
+
+
+    // fracturado
+    7.5,1.6, 6.1,2.6,
+
+    // exodoncia
+    5.6,0.6, 7.6,2.6, 
+    5.6,2.6, 7.6,0.6
+
+];
+let pieza24 = [
+    // centro
+    8.7,1.2, 9.5,1.2, 9.5,2, 8.7,2,
+    // lateral superior
+    9.5,2, 8.7,2, 8.1,2.6, 10.1,2.6,
+    // lateral izquierdo
+    10.1,0.6, 9.5,1.2, 9.5,2, 10.1,2.6,
+    // lateral inferior
+    10.1,0.6, 8.1,0.6, 8.7,1.2, 9.5,1.2,
+    // lateral derecho
+    8.7,1.2, 8.1,0.6, 8.1,2.6, 8.7,2,
+
+      // seccion sana
+    8.7,1, 8.7,0.7, 9.6,0.7, 9.6,1.1, 8.7,1.8, 8.7,2.3, 9.6,2.3, 9.6,2.1,
+
+    // seccion extraccion
+    8.1,0.6, 10.1,2.6, 10.1,0.6, 8.1,2.6,
+
+    //caries
+        8.7,1.2, 9.5,1.2, 9.5,2, 8.7,2,
+    // lateral superior
+    9.5,2, 8.7,2, 8.1,2.6, 10.1,2.6,
+    // lateral izquierdo
+    10.1,0.6, 9.5,1.2, 9.5,2, 10.1,2.6,
+    // lateral inferior
+    10.1,0.6, 8.1,0.6, 8.7,1.2, 9.5,1.2,
+    // lateral derecho
+    8.7,1.2, 8.1,0.6, 8.1,2.6, 8.7,2,
+
+    // sellante
+    8.7,1.2, 9.5,1.2, 9.5,2, 8.7,2,
+
+    // restauracion
+      8.7,1.2, 9.5,1.2, 9.5,2, 8.7,2,
+    // lateral superior
+    9.5,2, 8.7,2, 8.1,2.6, 10.1,2.6,
+    // lateral izquierdo
+    10.1,0.6, 9.5,1.2, 9.5,2, 10.1,2.6,
+    // lateral inferior
+    10.1,0.6, 8.1,0.6, 8.7,1.2, 9.5,1.2,
+    // lateral derecho
+    8.7,1.2, 8.1,0.6, 8.1,2.6, 8.7,2,
+
+    // fracturado
+    9.5,1.6, 8.6,2.6,
+
+    // exodoncia
+    8.1,0.6, 10.1,2.6, 8.1,2.6, 10.1,0.6
+];
+let pieza25 = [
+    // centro
+    11.2,1.2, 12,1.2, 12,2, 11.2,2,
+    // lateral superior
+    12,2, 11.2,2, 10.6,2.6, 12.6,2.6,
+    // lateral izquierdo
+    12.6,0.6, 12,1.2, 12,2, 12.6,2.6,
+    // lateral inferior
+    12.6,0.6, 10.6,0.6, 11.2,1.2, 12,1.2,
+    // lateral derecho
+    11.2,1.2, 10.6,0.6, 10.6,2.6, 11.2,2,
+
+    
+    // seccion sana
+    11.2,1, 11.2,0.7, 12.1,0.7, 12.1,1.1, 
+    11.2,1.8, 11.2,2.3, 12.1,2.3, 12.1,2.1,
+
+
+    // seccion extraccion
+    10.6,0.6, 12.6,2.6, 12.6,0.6, 10.6,2.6,
+
+    11.2,1.2, 12,1.2, 12,2, 11.2,2,
+    // lateral superior
+    12,2, 11.2,2, 10.6,2.6, 12.6,2.6,
+    // lateral izquierdo
+    12.6,0.6, 12,1.2, 12,2, 12.6,2.6,
+    // lateral inferior
+    12.6,0.6, 10.6,0.6, 11.2,1.2, 12,1.2,
+    // lateral derecho
+    11.2,1.2, 10.6,0.6, 10.6,2.6, 11.2,2,
+
+    
+    // sellante
+    11.2,1.2, 12,1.2, 12,2, 11.2,2,
+
+    // restauracion
+    11.2,1.2, 12,1.2, 12,2, 11.2,2,
+    // lateral superior
+    12,2, 11.2,2, 10.6,2.6, 12.6,2.6,
+    // lateral izquierdo
+    12.6,0.6, 12,1.2, 12,2, 12.6,2.6,
+    // lateral inferior
+    12.6,0.6, 10.6,0.6, 11.2,1.2, 12,1.2,
+    // lateral derecho
+    11.2,1.2, 10.6,0.6, 10.6,2.6, 11.2,2,
+
+    // fracturado
+    12,1.6, 11.1,2.6,
+
+    // exodoncia
+    10.6,0.6, 12.6,2.6, 10.6,2.6, 12.6,0.6
+];
+
+
+     let pieza41 = [
+    // centro
+    -2,-1.2, -1.2,-1.2, -1.2,-2, -2,-2,
+    // lateral superior
+    -2,-2, -1.2,-2, -0.6,-2.6, -2.6,-2.6,
+    // lateral izquierdo
+    -2.6,-0.6, -2,-1.2, -2,-2, -2.6,-2.6,
+    // lateral inferior
+    -2.6,-0.6, -0.6,-0.6, -1.2,-1.2, -2,-1.2,
+    // lateral derecho
+    -1.2,-1.2, -0.6,-0.6, -0.6,-2.6, -1.2,-2,
+
+    // seccion sana
+    -2,-1,
+    -2,-0.7,
+    -1.1,-0.7,
+    -1.1,-1.1,
+    -2,-1.8,
+    -2,-2.3,
+    -1.1,-2.3,
+    -1.1,-2.1,
+
+    // seccion extraccion
+    -2.6,-0.6,
+    -0.6,-2.6,
+    -2.6,-2.6,
+    -0.6,-0.6,
+
+     // centro
+    -2,-1.2, -1.2,-1.2, -1.2,-2, -2,-2,
+    // lateral superior
+    -2,-2, -1.2,-2, -0.6,-2.6, -2.6,-2.6,
+    // lateral izquierdo
+    -2.6,-0.6, -2,-1.2, -2,-2, -2.6,-2.6,
+    // lateral inferior
+    -2.6,-0.6, -0.6,-0.6, -1.2,-1.2, -2,-1.2,
+    // lateral derecho
+    -1.2,-1.2, -0.6,-0.6, -0.6,-2.6, -1.2,-2,
+
+    // seccion sellante
+    -2,-1.2, -1.2,-1.2, -1.2,-2, -2,-2,   
+
+    // seccion restauracion
+   -2,-1.2, -1.2,-1.2, -1.2,-2, -2,-2,
+    // lateral superior
+    -2,-2, -1.2,-2, -0.6,-2.6, -2.6,-2.6,
+    // lateral izquierdo
+    -2.6,-0.6, -2,-1.2, -2,-2, -2.6,-2.6,
+    // lateral inferior
+    -2.6,-0.6, -0.6,-0.6, -1.2,-1.2, -2,-1.2,
+    // lateral derecho
+    -1.2,-1.2, -0.6,-0.6, -0.6,-2.6, -1.2,-2,
+
+    // seccion fracturado
+    -0.5,-1.6, -1.5,-0.5,
+
+    // seccion exodoncia
+    -2.6,-0.6,
+    -0.6,-2.6,
+    -2.6,-2.6,
+    -0.6,-0.6
+];
+
+        let pieza42 = [
+    // centro
+    -4.5,-1.2, -3.7,-1.2, -3.7,-2, -4.5,-2,
+    // lateral superior
+    -4.5,-2, -3.7,-2, -3.1,-2.6, -5.1,-2.6,
+    // lateral izquierdo
+    -5.1,-0.6, -4.5,-1.2, -4.5,-2, -5.1,-2.6,
+    // lateral inferior
+    -5.1,-0.6, -3.1,-0.6, -3.7,-1.2, -4.5,-1.2,
+    // lateral derecho
+    -3.7,-1.2, -3.1,-0.6, -3.1,-2.6, -3.7,-2,
+
+// seccion sana
+-3.7,-1,
+-3.7,-0.7,
+-4.6,-0.7,
+-4.6,-1.1,
+-3.7,-1.8,
+-3.7,-2.3,
+-4.6,-2.3,
+-4.6,-2.1,
+
+    
+  // seccion extraccion
+    -5.1,-0.6,
+    -3.1,-2.6,
+    -5.1,-2.6,
+    -3.1,-0.6,
+
+ // seccion caries
+    -4.5,-1.2, -3.7,-1.2, -3.7,-2, -4.5,-2,
+    // lateral superior
+    -4.5,-2, -3.7,-2, -3.1,-2.6, -5.1,-2.6,
+    // lateral izquierdo
+    -5.1,-0.6, -4.5,-1.2, -4.5,-2, -5.1,-2.6,
+    // lateral inferior
+    -5.1,-0.6, -3.1,-0.6, -3.7,-1.2, -4.5,-1.2,
+    // lateral derecho
+    -3.7,-1.2, -3.1,-0.6, -3.1,-2.6, -3.7,-2,
+
+    //seccion sellante
+        -4.5,-1.2, -3.7,-1.2, -3.7,-2, -4.5,-2,
+
+        // seccion restauracion
+    -4.5,-1.2, -3.7,-1.2, -3.7,-2, -4.5,-2,
+    // lateral superior
+    -4.5,-2, -3.7,-2, -3.1,-2.6, -5.1,-2.6,
+    // lateral izquierdo
+    -5.1,-0.6, -4.5,-1.2, -4.5,-2, -5.1,-2.6,
+    // lateral inferior
+    -5.1,-0.6, -3.1,-0.6, -3.7,-1.2, -4.5,-1.2,
+    // lateral derecho
+    -3.7,-1.2, -3.1,-0.6, -3.1,-2.6, -3.7,-2,
+
+     // seccion fracturado
+   -3.1,-1.6, -4,-0.5,
+
+
+     // seccion exodoncia
+   -5.1,-0.6,
+    -3.1,-2.6,
+    -5.1,-2.6,
+    -3.1,-0.6,
+
+
+];
+
+let pieza43 = [
+    // centro
+    -7,-1.2, -6.2,-1.2, -6.2,-2, -7,-2,
+    // lateral superior
+    -7,-2, -6.2,-2, -5.6,-2.6, -7.6,-2.6,
+    // lateral izquierdo
+    -7.6,-0.6, -7,-1.2, -7,-2, -7.6,-2.6,
+    // lateral inferior
+    -7.6,-0.6, -5.6,-0.6, -6.2,-1.2, -7,-1.2,
+    // lateral derecho
+    -6.2,-1.2, -5.6,-0.6, -5.6,-2.6, -6.2,-2,
+
+      // seccion sana
+    -6.2,-1,
+    -6.2,-0.7,
+    -7,-0.7,
+    -7,-1.1,
+    -6.2,-1.8,
+    -6.2,-2.3,
+    -7,-2.3,
+    -7,-2.1,
+
+    // seccion extraccion
+    -7.6,-0.6,
+    -5.6,-2.6,
+    -7.6,-2.6,
+    -5.6,-0.6,
+
+    // seccion caries
+    -7,-1.2, -6.2,-1.2, -6.2,-2, -7,-2,
+    // lateral superior
+    -7,-2, -6.2,-2, -5.6,-2.6, -7.6,-2.6,
+    // lateral izquierdo
+    -7.6,-0.6, -7,-1.2, -7,-2, -7.6,-2.6,
+    // lateral inferior
+    -7.6,-0.6, -5.6,-0.6, -6.2,-1.2, -7,-1.2,
+    // lateral derecho
+    -6.2,-1.2, -5.6,-0.6, -5.6,-2.6, -6.2,-2,
+
+    // seccion sellante
+    -7,-1.2, -6.2,-1.2, -6.2,-2, -7,-2,
+
+    // seccion restauracion
+    -7,-1.2, -6.2,-1.2, -6.2,-2, -7,-2,
+    // lateral superior
+    -7,-2, -6.2,-2, -5.6,-2.6, -7.6,-2.6,
+    // lateral izquierdo
+    -7.6,-0.6, -7,-1.2, -7,-2, -7.6,-2.6,
+    // lateral inferior
+    -7.6,-0.6, -5.6,-0.6, -6.2,-1.2, -7,-1.2,
+    // lateral derecho
+    -6.2,-1.2, -5.6,-0.6, -5.6,-2.6, -6.2,-2,
+
+    // seccion fracturado
+    -5.6,-1.6, -6.5,-0.5,
+
+    // seccion exodoncia
+    -7.6,-0.6,
+    -5.6,-2.6,
+    -7.6,-2.6,
+    -5.6,-0.6,
+
+];
+let pieza44 = [
+    // centro
+    -9.5,-1.2, -8.7,-1.2, -8.7,-2, -9.5,-2,
+    // lateral superior
+    -9.5,-2, -8.7,-2, -8.1,-2.6, -10.1,-2.6,
+    // lateral izquierdo
+    -10.1,-0.6, -9.5,-1.2, -9.5,-2, -10.1,-2.6,
+    // lateral inferior
+    -10.1,-0.6, -8.1,-0.6, -8.7,-1.2, -9.5,-1.2,
+    // lateral derecho
+    -8.7,-1.2, -8.1,-0.6, -8.1,-2.6, -8.7,-2,
+
+    // seccion sana
+    -8.7,-1,
+    -8.7,-0.7,
+    -9.6,-0.7,
+    -9.6,-1.1,
+    -8.7,-1.8,
+    -8.7,-2.3,
+    -9.6,-2.3,
+    -9.6,-2.1,
+
+    // seccion extraccion
+    -10.1,-0.6,
+    -8.1,-2.6,
+    -10.1,-2.6,
+    -8.1,-0.6,
+
+    // seccion caries
+    -9.5,-1.2, -8.7,-1.2, -8.7,-2, -9.5,-2,
+    // lateral superior
+    -9.5,-2, -8.7,-2, -8.1,-2.6, -10.1,-2.6,
+    // lateral izquierdo
+    -10.1,-0.6, -9.5,-1.2, -9.5,-2, -10.1,-2.6,
+    // lateral inferior
+    -10.1,-0.6, -8.1,-0.6, -8.7,-1.2, -9.5,-1.2,
+    // lateral derecho
+    -8.7,-1.2, -8.1,-0.6, -8.1,-2.6, -8.7,-2,
+
+    // seccion sellante
+    -9.5,-1.2, -8.7,-1.2, -8.7,-2, -9.5,-2,
+
+    // seccion restauracion
+    -9.5,-1.2, -8.7,-1.2, -8.7,-2, -9.5,-2,
+    // lateral superior
+    -9.5,-2, -8.7,-2, -8.1,-2.6, -10.1,-2.6,
+    // lateral izquierdo
+    -10.1,-0.6, -9.5,-1.2, -9.5,-2, -10.1,-2.6,
+    // lateral inferior
+    -10.1,-0.6, -8.1,-0.6, -8.7,-1.2, -9.5,-1.2,
+    // lateral derecho
+    -8.7,-1.2, -8.1,-0.6, -8.1,-2.6, -8.7,-2,
+
+    // seccion fracturado
+    -8.1,-1.6, -9,-0.5,
+
+    // seccion exodoncia
+    -10.1,-0.6,
+    -8.1,-2.6,
+    -10.1,-2.6,
+    -8.1,-0.6,
+];
+
+let pieza45 = [
+    // centro
+    -12,-1.2, -11.2,-1.2, -11.2,-2, -12,-2,
+    // lateral superior
+    -12,-2, -11.2,-2, -10.6,-2.6, -12.6,-2.6,
+    // lateral izquierdo
+    -12.6,-0.6, -12,-1.2, -12,-2, -12.6,-2.6,
+    // lateral inferior
+    -12.6,-0.6, -10.6,-0.6, -11.2,-1.2, -12,-1.2,
+    // lateral derecho
+    -11.2,-1.2, -10.6,-0.6, -10.6,-2.6, -11.2,-2,
+
+    // seccion sana
+    -11.2,-1,
+    -11.2,-0.7,
+    -12.2,-0.7,
+    -12.2,-1.1,
+    -11.2,-1.8,
+    -11.2,-2.3,
+    -12.2,-2.3,
+    -12.2,-2.1,
+
+    // seccion extraccion
+    -12.6,-0.6,
+    -10.6,-2.6,
+    -12.6,-2.6,
+    -10.6,-0.6,
+
+    // seccion caries
+    -12,-1.2, -11.2,-1.2, -11.2,-2, -12,-2,
+    // lateral superior
+    -12,-2, -11.2,-2, -10.6,-2.6, -12.6,-2.6,
+    // lateral izquierdo
+    -12.6,-0.6, -12,-1.2, -12,-2, -12.6,-2.6,
+    // lateral inferior
+    -12.6,-0.6, -10.6,-0.6, -11.2,-1.2, -12,-1.2,
+    // lateral derecho
+    -11.2,-1.2, -10.6,-0.6, -10.6,-2.6, -11.2,-2,
+
+    // seccion sellante
+    -12,-1.2, -11.2,-1.2, -11.2,-2, -12,-2,
+
+    // seccion restauracion
+    -12,-1.2, -11.2,-1.2, -11.2,-2, -12,-2,
+    // lateral superior
+    -12,-2, -11.2,-2, -10.6,-2.6, -12.6,-2.6,
+    // lateral izquierdo
+    -12.6,-0.6, -12,-1.2, -12,-2, -12.6,-2.6,
+    // lateral inferior
+    -12.6,-0.6, -10.6,-0.6, -11.2,-1.2, -12,-1.2,
+    // lateral derecho
+    -11.2,-1.2, -10.6,-0.6, -10.6,-2.6, -11.2,-2,
+
+    // seccion fracturado
+    -10.6,-1.6, -11.5,-0.5,
+
+    // seccion exodoncia
+    -12.6,-0.6,
+    -10.6,-2.6,
+    -12.6,-2.6,
+    -10.6,-0.6,
+];
+
+    let pieza31 = [
+
+    // centro
+    1.2,-1.2, 2,-1.2, 2,-2, 1.2,-2,
+    // lateral superior
+    2,-2, 1.2,-2, 0.6,-2.6, 2.6,-2.6,
+    // lateral izquierdo
+    2.6,-0.6, 2,-1.2, 2,-2, 2.6,-2.6,
+    // lateral inferior
+    2.6,-0.6, 0.6,-0.6, 1.2,-1.2, 2,-1.2,
+    // lateral derecho
+    1.2,-1.2, 0.6,-0.6, 0.6,-2.6, 1.2,-2,
+        
+    // seccion sana
+   2.1,-1, 2.1,-0.7, 1.2,-0.7, 1.2,-1.1, 2.1,-1.8, 2.1,-2.3, 1.2,-2.3, 1.2,-2.1,
+
+
+    // seccion extraccion
+    0.6,-0.6, 2.6,-2.6, 0.6,-2.6, 2.6,-0.6,
+//caries
+// centro
+    1.2,-1.2, 2,-1.2, 2,-2, 1.2,-2,
+    // lateral superior
+    2,-2, 1.2,-2, 0.6,-2.6, 2.6,-2.6,
+    // lateral izquierdo
+    2.6,-0.6, 2,-1.2, 2,-2, 2.6,-2.6,
+    // lateral inferior
+    2.6,-0.6, 0.6,-0.6, 1.2,-1.2, 2,-1.2,
+    // lateral derecho
+    1.2,-1.2, 0.6,-0.6, 0.6,-2.6, 1.2,-2,
+
+    // sellante
+    1.2,-1.2, 2,-1.2, 2,-2, 1.2,-2,
+
+    // restauracion
+    // centro
+    1.2,-1.2, 2,-1.2, 2,-2, 1.2,-2,
+    // lateral superior
+    2,-2, 1.2,-2, 0.6,-2.6, 2.6,-2.6,
+    // lateral izquierdo
+    2.6,-0.6, 2,-1.2, 2,-2, 2.6,-2.6,
+    // lateral inferior
+    2.6,-0.6, 0.6,-0.6, 1.2,-1.2, 2,-1.2,
+    // lateral derecho
+    1.2,-1.2, 0.6,-0.6, 0.6,-2.6, 1.2,-2,
+
+
+    // fracturado
+    2.6,-1.6, 1.5,-0.6,
+
+    // exodoncia
+    0.6,-0.6, 2.6,-2.6, 0.6,-2.6, 2.6,-0.6
+    ];
+
+    let pieza32 = [
+    // centro
+    3.7,-1.2, 4.5,-1.2, 4.5,-2, 3.7,-2,
+    // lateral superior
+    4.5,-2, 3.7,-2, 3.1,-2.6, 5.1,-2.6,
+    // lateral izquierdo
+    5.1,-0.6, 4.5,-1.2, 4.5,-2, 5.1,-2.6,
+    // lateral inferior
+    5.1,-0.6, 3.1,-0.6, 3.7,-1.2, 4.5,-1.2,
+    // lateral derecho
+    3.7,-1.2, 3.1,-0.6, 3.1,-2.6, 3.7,-2,
+
+    
+    // seccion sana
+    4.5,-1, 4.5,-0.7, 3.6,-0.7, 3.6,-1.1, 
+    4.5,-1.8, 4.5,-2.3, 3.6,-2.3, 3.6,-2.1,
+
+    // seccion extraccion
+    3.1,-0.6, 5.1,-2.6, 3.1,-2.6, 5.1,-0.6,
+
+    // caries
+    3.7,-1.2, 4.5,-1.2, 4.5,-2, 3.7,-2,
+    // lateral superior
+    4.5,-2, 3.7,-2, 3.1,-2.6, 5.1,-2.6,
+    // lateral izquierdo
+    5.1,-0.6, 4.5,-1.2, 4.5,-2, 5.1,-2.6,
+    // lateral inferior
+    5.1,-0.6, 3.1,-0.6, 3.7,-1.2, 4.5,-1.2,
+    // lateral derecho
+    3.7,-1.2, 3.1,-0.6, 3.1,-2.6, 3.7,-2,
+
+
+    // sellante
+    3.7,-1.2, 4.5,-1.2, 4.5,-2, 3.7,-2,
+
+    // restauracion
+    3.7,-1.2, 4.5,-1.2, 4.5,-2, 3.7,-2,
+    // lateral superior
+    4.5,-2, 3.7,-2, 3.1,-2.6, 5.1,-2.6,
+    // lateral izquierdo
+    5.1,-0.6, 4.5,-1.2, 4.5,-2, 5.1,-2.6,
+    // lateral inferior
+    5.1,-0.6, 3.1,-0.6, 3.7,-1.2, 4.5,-1.2,
+    // lateral derecho
+    3.7,-1.2, 3.1,-0.6, 3.1,-2.6, 3.7,-2,
+
+    // fracturado
+    5.1,-1.6, 4,-0.6,
+
+    // exodoncia
+    3.1,-0.6, 5.1,-2.6, 3.1,-2.6, 5.1,-0.6
+];
+
+let pieza33 = [
+    // centro
+    6.2,-1.2, 7,-1.2, 7,-2, 6.2,-2,
+    // lateral superior
+    7,-2, 6.2,-2, 5.6,-2.6, 7.6,-2.6,
+    // lateral izquierdo
+    7.6,-0.6, 7,-1.2, 7,-2, 7.6,-2.6,
+    // lateral inferior
+    7.6,-0.6, 5.6,-0.6, 6.2,-1.2, 7,-1.2,
+    // lateral derecho
+    6.2,-1.2, 5.6,-0.6, 5.6,-2.6, 6.2,-2,
+
+    
+    // seccion sana
+    7,-1, 7,-0.7, 6.1,-0.7, 6.1,-1.1, 7,-1.8, 7,-2.3, 6.1,-2.3, 6.1,-2.1,
+
+    // seccion extraccion
+    5.6,-0.6, 7.6,-2.6, 5.6,-2.6, 7.6,-0.6,
+
+    // caries
+  6.2,-1.2, 7,-1.2, 7,-2, 6.2,-2,
+    // lateral superior
+    7,-2, 6.2,-2, 5.6,-2.6, 7.6,-2.6,
+    // lateral izquierdo
+    7.6,-0.6, 7,-1.2, 7,-2, 7.6,-2.6,
+    // lateral inferior
+    7.6,-0.6, 5.6,-0.6, 6.2,-1.2, 7,-1.2,
+    // lateral derecho
+    6.2,-1.2, 5.6,-0.6, 5.6,-2.6, 6.2,-2,
+
+    // sellante
+    6.2,-1.2, 7,-1.2, 7,-2, 6.2,-2,
+
+    // restauracion
+    6.2,-1.2, 7,-1.2, 7,-2, 6.2,-2,
+    // lateral superior
+    7,-2, 6.2,-2, 5.6,-2.6, 7.6,-2.6,
+    // lateral izquierdo
+    7.6,-0.6, 7,-1.2, 7,-2, 7.6,-2.6,
+    // lateral inferior
+    7.6,-0.6, 5.6,-0.6, 6.2,-1.2, 7,-1.2,
+    // lateral derecho
+    6.2,-1.2, 5.6,-0.6, 5.6,-2.6, 6.2,-2,
+
+    // fracturado
+    7.6,-1.6, 6.5,-0.6,
+
+    // exodoncia
+    5.6,-0.6, 7.6,-2.6, 5.6,-2.6, 7.6,-0.6
+];
+let pieza34 = [
+    // centro
+    8.7,-1.2, 9.5,-1.2, 9.5,-2, 8.7,-2,
+    // lateral superior
+    9.5,-2, 8.7,-2, 8.1,-2.6, 10.1,-2.6,
+    // lateral izquierdo
+    10.1,-0.6, 9.5,-1.2, 9.5,-2, 10.1,-2.6,
+    // lateral inferior
+    10.1,-0.6, 8.1,-0.6, 8.7,-1.2, 9.5,-1.2,
+    // lateral derecho
+    8.7,-1.2, 8.1,-0.6, 8.1,-2.6, 8.7,-2,
+
+    // seccion sana
+    9.5,-1, 9.5,-0.7, 8.6,-0.7, 8.6,-1.1, 9.5,-1.8, 9.5,-2.3, 8.6,-2.3, 8.6,-2.1,
+
+    // seccion extraccion
+    8.1,-0.6, 10.1,-2.6, 8.1,-2.6, 10.1,-0.6,
+
+    // caries
+    8.7,-1.2, 9.5,-1.2, 9.5,-2, 8.7,-2,
+    9.5,-2, 8.7,-2, 8.1,-2.6, 10.1,-2.6,
+    10.1,-0.6, 9.5,-1.2, 9.5,-2, 10.1,-2.6,
+    10.1,-0.6, 8.1,-0.6, 8.7,-1.2, 9.5,-1.2,
+    8.7,-1.2, 8.1,-0.6, 8.1,-2.6, 8.7,-2,
+
+    // sellante
+    8.7,-1.2, 9.5,-1.2, 9.5,-2, 8.7,-2,
+
+    // restauracion
+    8.7,-1.2, 9.5,-1.2, 9.5,-2, 8.7,-2,
+    9.5,-2, 8.7,-2, 8.1,-2.6, 10.1,-2.6,
+    10.1,-0.6, 9.5,-1.2, 9.5,-2, 10.1,-2.6,
+    10.1,-0.6, 8.1,-0.6, 8.7,-1.2, 9.5,-1.2,
+    8.7,-1.2, 8.1,-0.6, 8.1,-2.6, 8.7,-2,
+
+    // fracturado
+    10.1,-1.6, 8.9,-0.6,
+
+    // exodoncia
+    8.1,-0.6, 10.1,-2.6, 8.1,-2.6, 10.1,-0.6
+];
+
+let pieza35 = [
+    // centro
+    11.2,-1.2, 12,-1.2, 12,-2, 11.2,-2,
+    // lateral superior
+    12,-2, 11.2,-2, 10.6,-2.6, 12.6,-2.6,
+    // lateral izquierdo
+    12.6,-0.6, 12,-1.2, 12,-2, 12.6,-2.6,
+    // lateral inferior
+    12.6,-0.6, 10.6,-0.6, 11.2,-1.2, 12,-1.2,
+    // lateral derecho
+    11.2,-1.2, 10.6,-0.6, 10.6,-2.6, 11.2,-2,
+
+    // seccion sana
+    12,-1, 12,-0.7, 11.1,-0.7, 11.1,-1.1, 12,-1.8, 
+    12,-2.3, 11.1,-2.3, 11.1,-2.1,
+
+    // seccion extraccion
+    10.6,-0.6, 12.6,-2.6, 10.6,-2.6, 12.6,-0.6,
+
+    // caries
+    11.2,-1.2, 12,-1.2, 12,-2, 11.2,-2,
+    12,-2, 11.2,-2, 10.6,-2.6, 12.6,-2.6,
+    12.6,-0.6, 12,-1.2, 12,-2, 12.6,-2.6,
+    12.6,-0.6, 10.6,-0.6, 11.2,-1.2, 12,-1.2,
+    11.2,-1.2, 10.6,-0.6, 10.6,-2.6, 11.2,-2,
+
+    // sellante
+    11.2,-1.2, 12,-1.2, 12,-2, 11.2,-2,
+
+    // restauracion
+   11.2,-1.2, 12,-1.2, 12,-2, 11.2,-2,
+    // lateral superior
+    12,-2, 11.2,-2, 10.6,-2.6, 12.6,-2.6,
+    // lateral izquierdo
+    12.6,-0.6, 12,-1.2, 12,-2, 12.6,-2.6,
+    // lateral inferior
+    12.6,-0.6, 10.6,-0.6, 11.2,-1.2, 12,-1.2,
+    // lateral derecho
+    11.2,-1.2, 10.6,-0.6, 10.6,-2.6, 11.2,-2,
+
+    // fracturado
+    12.6,-1.6, 11.5,-0.6,
+
+    // exodoncia
+    10.6,-0.6, 12.6,-2.6, 10.6,-2.6, 12.6,-0.6
+];
+
+
+
+         // Vértices del diente
+        let piezasana = [
+           
+            // unidad dentada sana
+            //centro
+            -2,9.2, -1.2,9.2, -1.2,10.2, -2,10.2,
+            // lateral superior
+            -2,10.2, -1.2,10.2, -0.6,11, -2.6,11,
+            // lateral izquierdo
+            -2.6,8.4, -2,9.2, -2,10.2, -2.6,11,
+            // lateral inferior
+            -2.6,8.4, -0.6,8.4, -1.2,9.2, -2,9.2,
+            // lateral derecho
+            -1.2,9.2, -0.6,8.4, -0.6,11, -1.2,10.2,
+
+            -2,9.3, 
+            -2,9, 
+            -1.4,9, 
+            -1.4,9.4,
+            -2,10.2,
+            -2,10.8, 
+            -1.4,10.8,
+            -1.4,10.2,
+        ];
+       
+
+        let piezaextraida= [
+           
+            // unidad dentada 
+            //centro
+            2,9.2, 1.2,9.2, 1.2,10.2, 2,10.2,
+            // lateral superior
+            2,10.2, 1.2,10.2, 0.6,11, 2.6,11,
+            // lateral izquierdo
+            2.6,8.4, 2,9.2, 2,10.2, 2.6,11,
+            // lateral inferior
+            2.6,8.4, 0.6,8.4, 1.2,9.2, 2,9.2,
+            // lateral derecho
+            1.2,9.2, 0.6,8.4, 0.6,11, 1.2,10.2,
+            
+            2.6,11,0.6,8.4,
+            0.6,11,2.6,8.4,
+
+
+        ];
+
+        let piezacaries= [
+            // centro
+            5,9.2, 4.2,9.2, 4.2,10.2, 5,10.2,
+            // lateral superior
+            5,10.2, 4.2,10.2, 3.6,11, 5.6,11,
+            // lateral izquierdo
+            5.6,8.4, 5,9.2, 5,10.2, 5.6,11,
+            // lateral inferior
+            5.6,8.4, 3.6,8.4, 4.2,9.2, 5,9.2,
+            // lateral derecho
+            4.2,9.2, 3.6,8.4, 3.6,11, 4.2,10.2,
+            5.6,8.4, 5,9.2, 5,10.2, 5.6,11,
+
+        ];
+
+        let piezarestauracion= [
+             // centro
+            8,9.2, 7.2,9.2, 7.2,10.2, 8,10.2,
+            // lateral superior
+            8,10.2, 7.2,10.2, 6.6,11, 8.6,11,
+            // lateral izquierdo
+            8.6,8.4, 8,9.2, 8,10.2, 8.6,11,
+            // lateral inferior
+            8.6,8.4, 6.6,8.4, 7.2,9.2, 8,9.2,
+            // lateral derecho
+            7.2,9.2, 6.6,8.4, 6.6,11, 7.2,10.2,
+
+            8,9.2, 7.2,9.2, 7.2,10.2, 8,10.2,
+            8.6,8.4, 6.6,8.4, 7.2,9.2, 8,9.2,
+
+        ];
+        
+        // unidad dentada sana desplazada 3 a la izquierda
+let piezasellante = [ 
+    // centro
+    -5,9.2, -4.2,9.2, -4.2,10.2, -5,10.2,
+    // lateral superior
+    -5,10.2, -4.2,10.2, -3.6,11, -5.6,11,
+    // lateral izquierdo
+    -5.6,8.4, -5,9.2, -5,10.2, -5.6,11,
+    // lateral inferior
+    -5.6,8.4, -3.6,8.4, -4.2,9.2, -5,9.2,
+    // lateral derecho
+    -4.2,9.2, -3.6,8.4, -3.6,11, -4.2,10.2,
+
+     -5,9.2, -4.2,9.2, -4.2,10.2, -5,10.2,
+];
+
+
+let piezafracturado = [ 
+    // centro
+    -8,9.2, -7.2,9.2, -7.2,10.2, -8,10.2,
+    // lateral superior
+    -8,10.2, -7.2,10.2, -6.6,11, -8.6,11,
+    // lateral izquierdo
+    -8.6,8.4, -8,9.2, -8,10.2, -8.6,11,
+    // lateral inferior
+    -8.6,8.4, -6.6,8.4, -7.2,9.2, -8,9.2,
+    // lateral derecho
+    -7.2,9.2, -6.6,8.4, -6.6,11, -7.2,10.2,
+
+    -7.6,11,-6.6,9.8,
+];
+
+// pieza fracturada desplazada 3 a la izquierda
+let piezaexodoncia = [ 
+    // centro
+    -11,9.2, -10.2,9.2, -10.2,10.2, -11,10.2,
+    // lateral superior
+    -11,10.2, -10.2,10.2, -9.6,11, -11.6,11,
+    // lateral izquierdo
+    -11.6,8.4, -11,9.2, -11,10.2, -11.6,11,
+    // lateral inferior
+    -11.6,8.4, -9.6,8.4, -10.2,9.2, -11,9.2,
+    // lateral derecho
+    -10.2,9.2, -9.6,8.4, -9.6,11, -10.2,10.2,
+
+    -11.6,8.4,-9.6,11,
+    -9.6,8.4,-11.6,11,
+
+];
+
+let margen = [ 
+    -15,-5,
+    15,-5,
+    15,15,
+    -15,15
+
+];
+
+   margenVAO = gl.createVertexArray();
+        gl.bindVertexArray(margenVAO);
+        let buffermargen= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffermargen);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(margen), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+        pieza11VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza11VAO);
+        let buffer11= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer11);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza11), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza12VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza12VAO);
+        let buffer12= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer12);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza12), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza13VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza13VAO);
+        let buffer13= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer13);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza13), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza14VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza14VAO);
+        let buffer14= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer14);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza14), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza15VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza15VAO);
+        let buffer15 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer15);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza15), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+         // VAO y buffer para pieza 21
+        pieza21VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza21VAO);
+        let buffer21 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer21);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza21), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      
+        pieza22VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza22VAO);
+        let buffer22 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer22);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza22), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+          pieza23VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza23VAO);
+        let buffer23 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer23);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza23), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+          pieza24VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza24VAO);
+        let buffer24 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer24);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza24), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+          pieza25VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza25VAO);
+        let buffer25 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer25);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza25), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        
+
+        pieza41VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza41VAO);
+        let buffer41= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer41);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza41), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza42VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza42VAO);
+        let buffer42= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer42);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza42), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+            pieza43VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza43VAO);
+        let buffer43= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer43);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza43), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+            pieza44VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza44VAO);
+        let buffer44= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer44);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza44), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+            pieza45VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza45VAO);
+        let buffer45= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer45);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza45), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        // VAO y buffer para pieza 31
+        pieza31VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza31VAO);
+        let buffer31 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer31);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza31), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza32VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza32VAO);
+        let buffer32 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer32);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza32), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza33VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza33VAO);
+        let buffer33 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer33);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza33), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza34VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza34VAO);
+        let buffer34 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer34);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza34), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        pieza35VAO = gl.createVertexArray();
+        gl.bindVertexArray(pieza35VAO);
+        let buffer35 = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer35);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pieza35), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+        // VAO y buffer para pieza sana
+        piezasanaVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezasanaVAO);
+        let bufferSana = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferSana);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezasana), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        // VAO y buffer para pieza caries
+        piezacariesVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezacariesVAO);
+        let bufferCaries = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferCaries);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezacaries), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        
+        // VAO y buffer para pieza restauracion
+        piezarestauracionVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezarestauracionVAO);
+        let bufferRestauracion = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferRestauracion);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezarestauracion), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+         // VAO y buffer para pieza sellante
+        piezasellanteVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezasellanteVAO);
+        let bufferSellante = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferSellante);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezasellante), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+        
+         // VAO y buffer para pieza fracturado
+        piezafracturadoVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezafracturadoVAO);
+        let bufferFracturado= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferFracturado);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezafracturado), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+                
+         // VAO y buffer para pieza fracturado
+        piezaexodonciaVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezaexodonciaVAO);
+        let bufferExodoncia= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferExodoncia);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezaexodoncia), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+           // VAO y buffer para pieza extraida
+        piezaextraidaVAO = gl.createVertexArray();
+        gl.bindVertexArray(piezaextraidaVAO);
+        let bufferExtraccion= gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferExtraccion);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(piezaextraida), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+
+
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+
+
+        uColor = gl.getUniformLocation(programaID, "uColor");
+        let uMatrizProyeccion = gl.getUniformLocation(programaID, "uMatrizProyeccion");
+
+        ortho(MatrizProyeccion, -20,20,-20,20,-1,1);
+        gl.uniformMatrix4fv(uMatrizProyeccion,false,MatrizProyeccion);
+
+        gl.clearColor(1,1,1,1);
+        dibuja();
+    }
+
+    window.onload = main;
+  </script>
+</body>
+</html>
