@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Snake WebGL</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #ddd;
+      padding: 20px;
+    }
+
+    canvas {
+      background: #fff;
+      border-radius: 6px;
+      display: block;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Juego de la Viborita</h2>
+  <h3>Puntuación: <span id="puntuacion">0</span></h3>
+
+  <canvas id="webglcanvas" style="border: none;" width="500" height="500"></canvas>
+  <noscript>
+    <p><b>Lo siento, pero ésta página requiere JavaScript.</b></p>
+  </noscript>
+
+  <!-- Vertex Shader -->
+  <script id="vs" type="x-shader/x-vertex">
+    #version 300 es
+    uniform mat4 uMatrizProyeccion;
+    uniform mat4 uMatrizModelo;
+    layout(location = 0) in vec2 aVertices;
+    void main() {
+      gl_Position = uMatrizProyeccion * uMatrizModelo * vec4     (aVertices, 0.0, 1.0);
+    }
+</script>
+
+  <!-- Fragment Shader -->
+  <script id="fs" type="x-shader/x-fragment">
+    #version 300 es
+    precision mediump float;
+    uniform vec4 uColor;
+    out vec4 color;
+    void main() {
+      color = uColor;
+    }
+</script>
+
+  <script>
+    let snake = [{ x: 0, y: 0 }];
+    let direccion = { x: 1, y: 0 };
+    let gl, canvas, uColor, uMatrizProyeccion, uMatrizModelo;
+    let VAO, VAO2, manzanaVAO, naranjaVAO;
+    let MatrizProyeccion = new Float32Array(16);
+    let MatrizModelo = new Float32Array(16);
+    let comida = { x: 5, y: 5 };     // manzana
+    let cont = 0;
+    let cabezaVAO, circuloVAO;
+
+    /* Convierte de grados a radianes */
+    function toRadians(grados) {
+      return grados * Math.PI / 180;
+    };
+
+    /* Matriz Identidad */
+    function identidad(r) {
+      r[0] = 1; r[4] = 0; r[8] = 0; r[12] = 0;
+      r[1] = 0; r[5] = 1; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = 1; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+    }
+
+    /* Traslación - glTranslatef */
+    function traslacion(matriz, tx, ty, tz) {
+      let r = new Array(16);
+      r[0] = 1; r[4] = 0; r[8] = 0; r[12] = tx;
+      r[1] = 0; r[5] = 1; r[9] = 0; r[13] = ty;
+      r[2] = 0; r[6] = 0; r[10] = 1; r[14] = tz;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r); // M = M * T
+    }
+
+    /* Escalación - glScalef */
+    function escalacion(matriz, sx, sy, sz) {
+      let r = new Array(16);
+      r[0] = sx; r[4] = 0; r[8] = 0; r[12] = 0;
+      r[1] = 0; r[5] = sy; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = sz; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Rotación sobre Z - glRotatef */
+    function rotacionZ(matriz, theta) {
+      let r = new Array(16);
+      let c = Math.cos(toRadians(theta));
+      let s = Math.sin(toRadians(theta));
+      r[0] = c; r[4] = -s; r[8] = 0; r[12] = 0;
+      r[1] = s; r[5] = c; r[9] = 0; r[13] = 0;
+      r[2] = 0; r[6] = 0; r[10] = 1; r[14] = 0;
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+      multiplica(matriz, matriz, r);
+    }
+
+    /* Proyección Paralela - glOrtho */
+    function ortho(r, izq, der, abj, arr, cerca, lejos) {
+      r[0] = 2 / (der - izq); r[4] = 0; r[8] = 0; r[12] = -(der + izq) / (der - izq);
+      r[1] = 0; r[5] = 2 / (arr - abj); r[9] = 0; r[13] = -(arr + abj) / (arr - abj);
+      r[2] = 0; r[6] = 0; r[10] = -2 / (lejos - cerca); r[14] = -(lejos + cerca) / (lejos - cerca);
+      r[3] = 0; r[7] = 0; r[11] = 0; r[15] = 1;
+    }
+
+    /* Multiplicación de matrices de 4 x 4 */
+    function multiplica(c, a, b) {
+      let r = new Array(16);
+      let i, j, k;
+      for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+          let s = 0;
+          for (k = 0; k < 4; k++)
+            s = s + a[i + k * 4] * b[k + j * 4];
+          r[i + j * 4] = s;
+        }
+      }
+      for (i = 0; i < 16; i++)
+        c[i] = r[i];
+    }
+
+
+    class Circulo {
+      constructor(x, y, radio) {
+        this.x = x;
+        this.y = y;
+        this.radio = radio;
+      }
+      colisionaCon(c) {
+        const dx = this.x - c.x;
+        const dy = this.y - c.y;
+        const distancia = Math.sqrt(dx * dx + dy * dy);
+        return distancia < this.radio + c.radio;
+      }
+    }
+
+    function nuevaManzana() {
+      const half = Math.floor(15);
+      const margin = 2; // margen de seguridad (en casillas)
+
+      comida.x = Math.floor(Math.random() * (15 * margin)) - (half - margin);
+      comida.y = Math.floor(Math.random() * (15 * margin)) - (half - margin);
+    }
+
+    let circulos = {}; // almacena VAOs de radios distintos
+
+    function crearCircunferencia(radio, segmentos = 60) {
+      if (circulos[radio]) return circulos[radio]; // ya existe, no repetir
+
+      let vertices = [0, 0];
+      for (let i = 0; i <= segmentos; i++) {
+        let ang = i * 2 * Math.PI / segmentos;
+        vertices.push(radio * Math.cos(ang));
+        vertices.push(radio * Math.sin(ang));
+      }
+
+      let vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      let buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      gl.bindVertexArray(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+      circulos[radio] = { vao: vao, n: vertices.length / 2 };
+      return circulos[radio];
+    }
+
+
+    function aplicarTransformacionBase(base, dx, dy) {
+      let m = base.slice();     // clonar la matriz base
+      traslacion(m, dx, dy, 0); // aplicar traslación relativa
+      return m;
+    }
+
+
+    function vibora(x, y, angulo = 0, esCabeza = false) {
+      identidad(MatrizModelo);
+      traslacion(MatrizModelo, x, y, 0);
+      rotacionZ(MatrizModelo, angulo);
+      escalacion(MatrizModelo, 0.5, 0.5, 1);
+      let matrizBase = MatrizModelo.slice();
+
+      if (esCabeza) {
+        // Dibujar cabeza completa con ojos, iris, fosas nasales, etc.
+        const detalles = [
+          { dx: 0, dy: 3, color: [74 / 255, 120 / 255, 240 / 255, 1], radio: 1 },
+          { dx: -0.3, dy: 2.2, color: [74 / 255, 120 / 255, 240 / 255, 1], radio: 0.7 },
+          { dx: -0.3, dy: 3.6, color: [74 / 255, 120 / 255, 240 / 255, 1], radio: 0.7 },
+          { dx: -0.3, dy: 3.6, color: [1, 1, 1, 1], radio: 0.4 },
+          { dx: -0.3, dy: 2.2, color: [1, 1, 1, 1], radio: 0.4 },
+          { dx: -0.1, dy: 2.2, color: [0, 0, 1, 1], radio: 0.2 },
+          { dx: -0.1, dy: 3.6, color: [0, 0, 1, 1], radio: 0.2 },
+          { dx: 0.5, dy: 3.3, color: [0, 0, 1, 1], radio: 0.1 },
+          { dx: 0.5, dy: 2.7, color: [0, 0, 1, 1], radio: 0.1 },
+        ];
+
+        detalles.forEach(d => {
+          MatrizModelo = aplicarTransformacionBase(matrizBase, d.dx, d.dy);
+          gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+          gl.uniform4fv(uColor, d.color);
+
+          let c = crearCircunferencia(d.radio, 60); // genera si no existe
+          gl.bindVertexArray(c.vao);
+          gl.drawArrays(gl.TRIANGLE_FAN, 0, c.n);
+          gl.bindVertexArray(null);
+        });
+
+
+        // Cabeza rectangular principal (opcional si quieres VAO de cabeza)
+        MatrizModelo = aplicarTransformacionBase(matrizBase, -4, 2.7);
+        gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+        gl.uniform4fv(uColor, [74 / 255, 120 / 255, 240 / 255, 1]);
+        gl.bindVertexArray(cabezaVAO);
+        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+        gl.bindVertexArray(null);
+
+      } else {
+        // Dibujar cuerpo con VAO2
+
+        MatrizModelo = aplicarTransformacionBase(matrizBase, -2, 2.9);
+        escalacion(MatrizModelo, 1.8, 1.8, 1);
+        gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+        gl.uniform4fv(uColor, [74 / 255, 120 / 255, 240 / 255, 1]); // color del cuerpo
+        gl.bindVertexArray(VAO2);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.bindVertexArray(null);
+      }
+    }
+
+    // dibujar manzana 
+    function dibujarManzana(x, y) {
+      identidad(MatrizModelo);
+      traslacion(MatrizModelo, x, y, 0);
+      escalacion(MatrizModelo, 0.5, 0.5, 1);
+      gl.uniformMatrix4fv(uMatrizModelo, false, MatrizModelo);
+
+      gl.uniform4fv(uColor, [204 / 255, 51 / 255, 46 / 255, 1]);
+      gl.bindVertexArray(manzanaVAO);
+      gl.drawArrays(gl.TRIANGLE_FAN, 0, 11);
+      gl.bindVertexArray(null);
+
+      gl.uniform4fv(uColor, [92 / 255, 109 / 255, 29 / 255, 1]);
+      gl.bindVertexArray(manzanaVAO);
+      gl.drawArrays(gl.TRIANGLE_FAN, 11, 7);
+      gl.bindVertexArray(null);
+
+      gl.uniform4fv(uColor, [123 / 255, 35 / 255, 31 / 255, 1]);
+      gl.bindVertexArray(manzanaVAO);
+      gl.drawArrays(gl.TRIANGLE_FAN, 18, 5);
+      gl.bindVertexArray(null);
+
+      gl.uniform4fv(uColor, [234 / 255, 108 / 255, 109 / 255, 1]);
+      gl.bindVertexArray(manzanaVAO);
+      gl.drawArrays(gl.TRIANGLE_FAN, 23, 8);
+      gl.bindVertexArray(null);
+
+      gl.uniform4fv(uColor, [194 / 255, 206 / 255, 96 / 255, 1]);
+      gl.bindVertexArray(manzanaVAO);
+      gl.drawArrays(gl.TRIANGLE_FAN, 31, 7);
+      gl.bindVertexArray(null);
+    }
+
+    let crecerPendiente = 0; // segmentos pendientes de crecer
+    function actualizar() {
+      const cabeza = {
+        x: Math.round(snake[0].x + direccion.x),
+        y: Math.round(snake[0].y + direccion.y)
+      };
+
+      snake.unshift(cabeza);
+
+      // Crear objetos Circulo
+      const cabezaCirculo = new Circulo(cabeza.x, cabeza.y, 0.8);
+      const manzanaCirculo = new Circulo(comida.x, comida.y, 1.2);
+
+      if (cabezaCirculo.colisionaCon(manzanaCirculo)) {
+        crecerPendiente += 1;
+        cont += 1;
+        document.getElementById("puntuacion").textContent = cont;
+        nuevaManzana();
+      } else {
+        snake.pop();
+      }
+
+      // Colisión con bordes
+      if (Math.abs(cabeza.x) > 14 || Math.abs(cabeza.y) > 14) {
+        snake = [{ x: 0, y: 0 }];
+        direccion = { x: 1, y: 0 };
+        crecerPendiente = 0;
+        cont = 0;
+        document.getElementById("puntuacion").textContent = cont;
+        alert("Chocaste con el borde");
+        nuevaManzana();
+      }
+    }
+
+    // renderizar
+    function renderizar() {
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      dibujarManzana(Math.round(comida.x), Math.round(comida.y));
+      const cabeza = snake[0];
+
+      let ang = 0;
+      if (direccion.x === 1) ang = 0;
+      if (direccion.x === -1) ang = 180;
+      if (direccion.y === 1) ang = 90;
+      if (direccion.y === -1) ang = 270;
+
+      vibora(cabeza.x, cabeza.y, ang, true);
+      for (let i = 1; i < snake.length; i++) {
+        vibora(snake[i].x, snake[i].y, ang, false);
+      }
+      requestAnimationFrame(renderizar);
+    }
+
+    function ciclo() {
+      actualizar();
+      renderizar();
+      setTimeout(() => requestAnimationFrame(ciclo), 100);
+    }
+
+    function teclado(e) {
+      if (e.key === "ArrowUp" && direccion.y === 0) direccion = { x: 0, y: 1 };
+      if (e.key === "ArrowDown" && direccion.y === 0) direccion = { x: 0, y: -1 };
+      if (e.key === "ArrowLeft" && direccion.x === 0) direccion = { x: -1, y: 0 };
+      if (e.key === "ArrowRight" && direccion.x === 0) direccion = { x: 1, y: 0 };
+    }
+
+    function main() {
+      canvas = document.getElementById("webglcanvas");
+      gl = canvas.getContext("webgl2");
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0, 1, 0, 1);
+
+      const vs = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(vs, document.getElementById("vs").text.trim());
+      gl.compileShader(vs);
+      const fs = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(fs, document.getElementById("fs").text.trim());
+      gl.compileShader(fs);
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+      gl.linkProgram(prog); gl.useProgram(prog);
+
+      uColor = gl.getUniformLocation(prog, "uColor");
+      uMatrizProyeccion = gl.getUniformLocation(prog, "uMatrizProyeccion");
+      uMatrizModelo = gl.getUniformLocation(prog, "uMatrizModelo");
+      ortho(MatrizProyeccion, -15, 15, -15, 15, -1, 1);
+      gl.uniformMatrix4fv(uMatrizProyeccion, false, MatrizProyeccion);
+
+      const vertices = new Float32Array([
+        -0.5, -0.5,
+        1, -0.5,
+        -0.5, 0.5,
+        1, 0.5
+      ]);
+      const cabeza = new Float32Array([
+        1.2, -0.7,
+        3.2, -0.7,
+        3.2, 1.2,
+        1.2, 1.2,
+      ]);
+
+      const vertices2 = new Float32Array([
+        -0.5, -0.5,
+        0.5, -0.5,
+        -0.5, 0.5,
+        0.5, 0.5
+      ]);
+
+      const manzana = new Float32Array([
+        -0.6, -1.8,
+        0.37, -1.8,
+        1, -1.5,
+        1.5, 0,
+        1, 1.3,
+        0, 1.2,
+        -0.2, 1.1,
+        -0.5, 1.3,
+        -0.9, 1.3,
+        -1.7, 0.47,
+        -1.2, -1.35, //(x1,x2)
+
+        0.21, 1.31,
+        0.72, 0.98,
+        1.26, 0.86,
+        1.83, 0.92,
+        1.53, 1.52, //(x2,y2)
+        0.8, 2,
+        0.14, 1.70,
+
+        -0.13, 1.24,
+        -0.02, 1.22,
+        0.11, 2.05,
+        0.01, 2.02,
+        -0.02, 2.05,
+
+        -1.13, -0.08,
+        -0.75, 0.02,
+        -0.89, 0.46,
+        -0.45, 0.7,
+        -0.49, 0.97,
+        -0.74, 0.96,
+        -1.34, 0.53,
+        -1.31, 0.11,
+
+        0.05, 1.68,
+        0.13, 1.68,
+        1.09, 1.35,
+        1.77, 0.94,
+        1.13, 1.37,
+        0.14, 1.73,
+        0.06, 1.72,
+      ]);
+
+
+      VAO = gl.createVertexArray();
+      gl.bindVertexArray(VAO);
+      let buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER,
+        vertices, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      VAO2 = gl.createVertexArray();
+      gl.bindVertexArray(VAO2);
+      let buf2 = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf2);
+      gl.bufferData(gl.ARRAY_BUFFER, vertices2, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      manzanaVAO = gl.createVertexArray();
+      gl.bindVertexArray(manzanaVAO);
+      let mbuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, mbuf);
+      gl.bufferData(gl.ARRAY_BUFFER, manzana, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      cabezaVAO = gl.createVertexArray();
+      gl.bindVertexArray(cabezaVAO);
+      let cabezabuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, cabezabuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, cabeza, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+
+      document.addEventListener("keydown", teclado);
+      ciclo();
+    }
+    window.onload = main;
+  </script>
+</body>
+
+</html>
